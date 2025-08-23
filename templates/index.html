@@ -1,0 +1,540 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="main-content-wrapper">
+    <div id="openseadragon-viewer" class="image-viewer-container"></div>
+    <div class="controls-container">
+        <div id="controls-1" class="control-panel">
+            <h3>Cài đặt</h3>
+            <div class="form-group">
+                <label for="max-speed-forward">Tiến lớn nhất (m/s)</label>
+                <select id="max-speed-forward" class="form-control">
+                    {% for van_toc in list_van_toc %}
+                    <option value="{{ van_toc }}" {% if van_toc == dict_cai_dat["tien_max"] %}selected{% endif %}>{{ van_toc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="max-speed-turn">Rẽ lớn nhất (độ/s)</label>
+                <select id="max-speed-turn" class="form-control">
+                    {% for van_toc_re in list_van_toc_re %}
+                    <option value="{{ van_toc_re }}" {% if van_toc_re == dict_cai_dat["re_max"] %}selected{% endif %}>{{ van_toc_re }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button id="update-settings-btn" class="btn-primary">Cập nhật</button>
+        </div>
+        <div id="controls-2" class="control-panel active">
+            <h3>Bản đồ</h3>
+            <div class="form-group">
+                <label for="map-select">Chọn bản đồ</label>
+                <select id="map-select" class="form-control">
+                    {% for ban_do in danh_sach_ban_do %}
+                    <option value="{{ ban_do }}">{{ ban_do }}</option>
+                    {% endfor %}
+                </select>
+                <button id="upload-map-btn" class="btn-primary">Tải bản đồ</button>
+            </div>
+            <button id="update-map-btn" class="btn-toggle">Cập nhật bản đồ cũ</button>
+
+            <br><hr><br>
+
+            <h3>Tạo bản đồ mới</h3>
+            <button id="create-new-map-btn" class="btn-primary">Tạo bản đồ mới</button>
+            <div class="input-with-button">
+                <input type="text" id="new-map-name-input" class="form-control" placeholder="Tên bản đồ mới">
+                <button id="save-new-map-btn" class="btn-primary">Lưu bản đồ</button>
+            </div>
+            <br><hr><br>
+
+            <h3>Điều khiển thủ công</h3>
+            <button id="manual-control-btn" class="btn-toggle">Điều khiển thủ công</button>
+            <div class="manual-control-group">
+                <div class="control-row">
+                    <button id="btn-forward" class="btn-arrow">▲</button>
+                </div>
+                <div class="control-row">
+                    <button id="btn-turn-left" class="btn-arrow">◀</button>
+                    <button id="btn-backward" class="btn-arrow">▼</button>
+                    <button id="btn-turn-right" class="btn-arrow">▶</button>
+                </div>
+            </div>
+        </div>
+        <div id="controls-3" class="control-panel">
+            <h3>Lựa chọn vị trí</h3>
+            <button class="btn-toggle">Vị trí robot hiện tại</button>
+            <button class="btn-toggle">Vị trí bắt đầu làm việc</button>
+            <button class="btn-toggle">Vị trí kết thúc làm việc</button>
+        </div>
+        <div id="controls-4" class="control-panel">
+            <h3>Khu vực làm việc</h3>
+            <button>Tạo mới</button>
+            <div class="input-with-button">
+                <input type="text" id="new-area-name" class="form-control" placeholder="Tên khu vực">
+                <button id="btn-save-area">Save</button>
+            </div>
+            <div class="form-group">
+                <label for="area-select">Chọn khu vực</label>
+                <select id="area-select" class="form-control">
+                    {% for khu_vuc in danh_sach_khu_vuc %}
+                    <option value="{{ khu_vuc }}">{{ khu_vuc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div id="controls-5" class="control-panel">
+            <h3>Chạy robot</h3>
+            <button id="btn-run-stop" class="btn-run">Chạy</button>
+            <button id="btn-finish">Kết thúc</button>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    let viewer;
+    const bluePointOverlays = [];
+    const redPointOverlays = [];
+    const osdAgvBodyPointOverlays = [];
+    const osdAgvArrowPointOverlays = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        viewer = OpenSeadragon({
+            id: "openseadragon-viewer",
+            prefixUrl: "{{ url_for('static', filename='images/') }}",
+            tileSources: {
+                type: 'image',
+                url:  '{{ url_for("img_none_all") }}'
+            },
+            animationTime: 0.1,
+            blendTime: 0,
+            constrainDuringPan: true,
+            visibilityRatio: 0.5,
+            zoomPerClick: 1.0,
+            maxZoomPixelRatio: 5,
+            zoomPerScroll: 1.2,
+            showNavigator: true,
+            navigatorPosition: "TOP_RIGHT",
+        });
+
+        viewer.addHandler('open', function() {
+            const savedState = sessionStorage.getItem('osdViewerState');
+            if (savedState) {
+                const viewerState = JSON.parse(savedState);
+                viewer.viewport.panTo(new OpenSeadragon.Point(viewerState.center.x, viewerState.center.y), true);
+                viewer.viewport.zoomTo(viewerState.zoom, true);
+            }
+            setInterval(fetchAGVState, 100);
+        });
+    });
+
+    // --- CÁC HÀM XỬ LÝ LỚP PHỦ VÀ TRẠNG THÁI ---
+    function updateAGVOnMap(bodyCoordsList, arrowCoordsList) {
+        if (!viewer || !viewer.isOpen() || !viewer.world.getItemCount() > 0) return;
+
+        const imageItem = viewer.world.getItemAt(0);
+        if (!imageItem || !imageItem.source || !imageItem.source.dimensions) return;
+
+        osdAgvBodyPointOverlays.forEach(overlayObj => {
+            if (overlayObj && overlayObj.element) {
+                viewer.removeOverlay(overlayObj.element);
+            }
+        });
+        osdAgvBodyPointOverlays.length = 0;
+
+        osdAgvArrowPointOverlays.forEach(overlayObj => {
+            if (overlayObj && overlayObj.element) {
+                viewer.removeOverlay(overlayObj.element);
+            }
+        });
+        osdAgvArrowPointOverlays.length = 0;
+
+        const imageWidth = imageItem.source.dimensions.x;
+        const imageHeight = imageItem.source.dimensions.y;
+        if (imageWidth === 0 || imageHeight === 0) return;
+
+        if (bodyCoordsList && bodyCoordsList.length > 0) {
+            bodyCoordsList.forEach(coords => {
+                const xForOSD = parseFloat(coords[0]) / imageWidth;
+                const yForOSD = parseFloat(coords[1]) / imageHeight;
+                const pointElement = document.createElement("div");
+                pointElement.style.width = "3px";
+                pointElement.style.height = "3px";
+                pointElement.style.backgroundColor = "blue";
+                pointElement.style.borderRadius = "50%";
+                pointElement.style.transform = "translate(-50%, -50%)";
+                viewer.addOverlay({ element: pointElement, location: new OpenSeadragon.Point(xForOSD, yForOSD), placement: OpenSeadragon.Placement.CENTER, checkResize: false });
+                osdAgvBodyPointOverlays.push({ element: pointElement });
+            });
+        }
+
+        if (arrowCoordsList && arrowCoordsList.length > 0) {
+            arrowCoordsList.forEach(coords => {
+                const xForOSD = parseFloat(coords[0]) / imageWidth;
+                const yForOSD = parseFloat(coords[1]) / imageHeight;
+                const pointElement = document.createElement("div");
+                pointElement.style.width = "3px";
+                pointElement.style.height = "3px";
+                pointElement.style.backgroundColor = "red";
+                pointElement.style.borderRadius = "50%";
+                pointElement.style.transform = "translate(-50%, -50%)";
+                viewer.addOverlay({ element: pointElement, location: new OpenSeadragon.Point(xForOSD, yForOSD), placement: OpenSeadragon.Placement.CENTER, checkResize: false });
+                osdAgvArrowPointOverlays.push({ element: pointElement });
+            });
+        }
+    }
+
+    function updateSpecialPoints(pointsArray, colorString, overlayStorageArray) {
+        if (!viewer || !viewer.isOpen()) return;
+
+        overlayStorageArray.forEach(overlayObj => {
+            if (overlayObj && overlayObj.element) {
+                viewer.removeOverlay(overlayObj.element);
+            }
+        });
+        overlayStorageArray.length = 0;
+
+        let imageWidth = 0;
+        let imageHeight = 0;
+        if (viewer.world.getItemCount() > 0) {
+            const tiledImage = viewer.world.getItemAt(0);
+            if (tiledImage && tiledImage.source && tiledImage.source.dimensions) {
+                imageWidth = tiledImage.source.dimensions.x;
+                imageHeight = tiledImage.source.dimensions.y;
+            } else if (tiledImage && tiledImage.source && tiledImage.source.width && tiledImage.source.height) {
+                imageWidth = tiledImage.source.width;
+                imageHeight = tiledImage.source.height;
+            }
+        }
+        if (imageWidth === 0 || imageHeight === 0) return;
+
+        pointsArray.forEach(pointCoords => {
+            const x_pixel = parseFloat(pointCoords[0]);
+            const y_pixel = parseFloat(pointCoords[1]);
+            if (isNaN(x_pixel) || isNaN(y_pixel)) return;
+
+            const x_normalized = x_pixel / imageWidth;
+            const y_normalized = y_pixel / imageHeight;
+            const pointLocation = new OpenSeadragon.Point(x_normalized, y_normalized);
+            const pointElement = document.createElement("div");
+            pointElement.style.width = "5px";
+            pointElement.style.height = "5px";
+            pointElement.style.backgroundColor = colorString;
+            pointElement.style.borderRadius = "50%";
+            pointElement.style.transform = "translate(-50%, -50%)";
+
+            viewer.addOverlay({
+                element: pointElement,
+                location: pointLocation,
+                placement: OpenSeadragon.Placement.CENTER
+            });
+            overlayStorageArray.push({ element: pointElement, location: pointLocation });
+        });
+    }
+
+    function fetchAGVState() {
+        fetch('/get_agv_state')
+            .then(response => response.json())
+            .then(data => {
+                if (data.points_blue) {
+                    updateSpecialPoints(data.points_blue, 'blue', bluePointOverlays);
+                }
+                if (data.points_red) {
+                    updateSpecialPoints(data.points_red, 'red', redPointOverlays);
+                }
+                if (data.agv_body_coords && data.agv_arrow_coords) {
+                    updateAGVOnMap(data.agv_body_coords, data.agv_arrow_coords);
+                }
+            })
+            .catch(error => console.error('Error fetching AGV state:', error));
+    }
+    
+    // --- LOGIC GIAO DIỆN ---
+    const menuLinks = document.querySelectorAll('#main-menu a');
+    const controlPanels = document.querySelectorAll('.control-panel');
+    const mainWrapper = document.querySelector('.main-content-wrapper');
+
+    function switchPanel(targetId) {
+        menuLinks.forEach(link => {
+            link.classList.toggle('active', link.getAttribute('data-target') === targetId);
+        });
+
+        if (targetId === 'fullscreen') {
+            mainWrapper.classList.add('fullscreen-mode');
+        } else {
+            mainWrapper.classList.remove('fullscreen-mode');
+            controlPanels.forEach(panel => {
+                panel.classList.toggle('active', panel.id === targetId);
+            });
+        }
+    }
+    menuLinks.forEach(link => {
+        link.addEventListener('click', function(event) {
+            event.preventDefault();
+            const targetId = this.getAttribute('data-target');
+            switchPanel(targetId);
+        });
+    });
+    switchPanel('controls-1');
+
+    // Cài đặt chung
+    const updateSettingsBtn = document.getElementById('update-settings-btn');
+    if (updateSettingsBtn) {
+        updateSettingsBtn.addEventListener('click', function() {
+            this.classList.add('btn-active-blue');
+            this.disabled = true;
+
+            fetch('/update_setting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    tien_max: parseFloat(document.getElementById('max-speed-forward').value),
+                    re_max: parseFloat(document.getElementById('max-speed-turn').value),
+                    update: 1 
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('Cài đặt đã được cập nhật thành công và cờ đã được đặt.');
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi khi gửi yêu cầu cập nhật:', error);
+            })
+            .finally(() => {
+                setTimeout(() => {
+                    this.classList.remove('btn-active-blue');
+                    this.disabled = false;
+                }, 2000);
+            });
+        });
+    }
+
+    const toggleButtons = document.querySelectorAll('.btn-toggle');
+    toggleButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            this.classList.toggle('btn-active-blue');
+        });
+    });
+
+    const runStopButton = document.getElementById('btn-run-stop');
+    if (runStopButton) {
+        runStopButton.addEventListener('click', function() {
+            if (this.classList.contains('btn-run')) {
+                this.classList.replace('btn-run', 'btn-stop');
+                this.textContent = 'Dừng';
+            } else {
+                this.classList.replace('btn-stop', 'btn-run');
+                this.textContent = 'Chạy';
+            }
+        });
+    }
+
+    const finishButton = document.getElementById('btn-finish');
+    if (finishButton && runStopButton) {
+        finishButton.addEventListener('click', function() {
+            runStopButton.classList.replace('btn-stop', 'btn-run');
+            runStopButton.textContent = 'Chạy';
+            this.classList.add('btn-active-blue');
+            setTimeout(() => { this.classList.remove('btn-active-blue'); }, 2000);
+        });
+    }
+
+    const saveAreaButton = document.getElementById('btn-save-area');
+    if (saveAreaButton) {
+        saveAreaButton.addEventListener('click', function() {
+            this.classList.add('btn-save-success');
+            setTimeout(() => {
+                this.classList.remove('btn-save-success');
+            }, 2000);
+        });
+    }
+    
+    // --- CÁC HÀM MỚI THEO YÊU CẦU ---
+
+    // 1. Tải bản đồ cũ và cập nhật
+    const uploadBtn = document.getElementById('upload-map-btn');
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', function() {
+            const selectedMap = document.getElementById('map-select').value;
+            this.classList.add('active');
+            this.disabled = true;
+
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'load_old_map', map_name: selectedMap }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('Server response:', data.message);
+                    viewer.open({
+                        type: 'image',
+                        url:  '{{ url_for("img_none_all") }}?' + new Date().getTime()
+                    });
+                } else {
+                    alert('Lỗi khi tải bản đồ: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi kết nối:', error);
+                alert('Đã xảy ra lỗi kết nối tới server.');
+            })
+            .finally(() => {
+                setTimeout(() => {
+                    uploadBtn.classList.remove('active');
+                    uploadBtn.disabled = false;
+                }, 2000);
+            });
+        });
+    }
+
+    const updateMapBtn = document.getElementById('update-map-btn');
+    if (updateMapBtn) {
+        updateMapBtn.addEventListener('click', function() {
+            const isToggled = this.classList.toggle('btn-active-blue');
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update_old_map', status: isToggled ? 1 : 0 }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error updating map status:', error));
+        });
+    }
+
+    // 2. Tạo bản đồ mới
+    const createNewMapBtn = document.getElementById('create-new-map-btn');
+    if (createNewMapBtn) {
+        createNewMapBtn.addEventListener('click', function() {
+            this.classList.add('btn-active-blue');
+            this.disabled = true;
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'create_new_map' }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error creating new map:', error))
+            .finally(() => {
+                setTimeout(() => {
+                    this.classList.remove('btn-active-blue');
+                    this.disabled = false;
+                }, 2000);
+            });
+        });
+    }
+
+    const newMapNameInput = document.getElementById('new-map-name-input');
+    if (newMapNameInput) {
+        newMapNameInput.addEventListener('input', function() {
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update_new_map_name', map_name: this.value }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error updating new map name:', error));
+        });
+    }
+
+    const saveNewMapBtn = document.getElementById('save-new-map-btn');
+    if (saveNewMapBtn) {
+        saveNewMapBtn.addEventListener('click', function() {
+            const mapName = newMapNameInput.value.trim();
+            if (mapName === "") {
+                alert("Vui lòng nhập tên bản đồ mới.");
+                return;
+            }
+            this.classList.add('btn-active-blue');
+            this.disabled = true;
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'save_new_map' }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error saving new map:', error))
+            .finally(() => {
+                setTimeout(() => {
+                    this.classList.remove('btn-active-blue');
+                    this.disabled = false;
+                }, 2000);
+            });
+        });
+    }
+
+    // 3. Điều khiển thủ công
+    const manualControlBtn = document.getElementById('manual-control-btn');
+    if (manualControlBtn) {
+        manualControlBtn.addEventListener('click', function() {
+            const isToggled = this.classList.toggle('btn-active-blue');
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'manual_control', status: isToggled ? 1 : 0 }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error toggling manual control:', error));
+        });
+    }
+
+    const arrowButtons = document.querySelectorAll('.btn-arrow');
+    arrowButtons.forEach(button => {
+        button.addEventListener('mousedown', function() {
+            this.classList.add('btn-active-blue');
+            let action = '';
+            if (this.id === 'btn-forward') action = 'forward';
+            if (this.id === 'btn-backward') action = 'backward';
+            if (this.id === 'btn-turn-left') action = 'turn_left';
+            if (this.id === 'btn-turn-right') action = 'turn_right';
+
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, status: 1 }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error updating arrow status:', error));
+        });
+        button.addEventListener('mouseup', function() {
+            this.classList.remove('btn-active-blue');
+            let action = '';
+            if (this.id === 'btn-forward') action = 'forward';
+            if (this.id === 'btn-backward') action = 'backward';
+            if (this.id === 'btn-turn-left') action = 'turn_left';
+            if (this.id === 'btn-turn-right') action = 'turn_right';
+
+            fetch('/update_map_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, status: 0 }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Server response:', data.message);
+            })
+            .catch(error => console.error('Error updating arrow status:', error));
+        });
+    });
+</script>
+{% endblock %}
