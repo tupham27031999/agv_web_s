@@ -6,7 +6,7 @@ body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    background-color: #f4f4f4;
+    background-color: #fff; /* Màu nền trang */
     /* Dùng font-size cơ sở để các đơn vị 'rem' được tính toán chính xác */
     font-size: 16px;
 }
@@ -83,7 +83,7 @@ header {
 .controls-container {
     flex: 1; /* Chiếm 1/4 chiều rộng */
     padding: 20px;
-    background-color: #f9f9f9;
+    background-color: #fff;
     border-left: 2px solid #eee;
     box-sizing: border-box; /* Đảm bảo padding không làm tăng kích thước */
     overflow-y: auto; /* Cho phép cuộn nếu nội dung quá dài */
@@ -109,6 +109,7 @@ header {
 .control-panel button:hover {
     background-color: #e7e7e7;
 }
+
 
 /* Mặc định ẩn các bảng điều khiển */
 .control-panel {
@@ -265,3 +266,112 @@ header {
     background-color: #3498db;
     color: white;
 }
+
+
+#logo-container {
+    position: absolute;
+    /* Nếu vẫn chưa sát, bạn có thể cần điều chỉnh margin */
+    bottom: 20px; /* Hoặc sử dụng margin âm nếu cần*/
+    right: 20px; 
+}
+
+/* Tùy chọn: Thêm padding cho khung chức năng để không bị chồng lấn */
+.control-panel {
+    position: relative;
+}
+
+#logo-container img {
+    height: 120px;
+}
+
+/* --------------------------------------------------------------------------------*/
+
+/* Styles cho các nút và input điều chỉnh góc */
+.angle-controls-group {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+    text-align: center;
+}
+
+.angle-controls-row {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.btn-angle {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    font-weight: bold;
+    line-height: 1;
+    border-radius: 50%;
+    border: 1px solid #ccc;
+    background-color: #f0f0f0;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.btn-angle:hover {
+    background-color: #e7e7e7;
+}
+
+.btn-angle:active {
+    background-color: #ccc;
+}
+
+#angle-input {
+    width: 80px;
+    text-align: center;
+}
+
+
+/* -----------------------------------------------------*/
+/* Thêm CSS cho nút nhấn 'Bôi đen khu vực làm việc' */
+.btn-toggle-blue.active {
+    background-color: #3498db;
+    color: white;
+    border-color: #2980b9;
+}
+
+/* Thêm CSS cho khung vuông làm việc */
+.working-area-overlay {
+    background-color: rgba(52, 152, 219, 0.2); /* Màu xanh dương mờ */
+    border: 2px solid #3498db; /* Viền xanh dương */
+    cursor: move;
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.working-area-overlay .area-label {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: bold;
+    color: #3498db;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    pointer-events: none; /* Quan trọng để không cản trở việc chọn khung */
+}
+
+/* Kiểu cho các điểm điều chỉnh kích thước */
+.resize-handle {
+    width: 10px;
+    height: 10px;
+    background-color: #3498db;
+    border: 1px solid white;
+    position: absolute;
+    z-index: 10;
+}
+
+/* Định vị các điểm điều chỉnh */
+.resize-handle.top-left { top: -5px; left: -5px; cursor: nwse-resize; }
+.resize-handle.top-right { top: -5px; right: -5px; cursor: nesw-resize; }
+.resize-handle.bottom-left { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.resize-handle.bottom-right { bottom: -5px; right: -5px; cursor: nwse-resize; }

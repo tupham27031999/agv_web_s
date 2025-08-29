@@ -6,14 +6,14 @@
     <title>Flask App - {{ title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
     <!-- <script src="https://openseadragon.github.io/openseadragon/openseadragon.min.js"></script> -->
-    <script src="{{ url_for('static', filename='js/openseadragon.min.js') }}"></script>
+    <script src="/static/js/openseadragon.min.js"></script>
 </head>
 <body>
     <header>
         <nav class="navigation">
             <div id="main-menu" class="menu-links">
-                <a href="#" data-target="controls-1">Cài đặt</a>
-                <a href="#" data-target="controls-2">Bản đồ</a>
+                <a href="#" data-target="controls-1">Bản đồ</a>
+                <a href="#" data-target="controls-2">Cài đặt</a>
                 <a href="#" data-target="controls-3">Lựa chọn vị trí</a>
                 <a href="#" data-target="controls-4">Khu vực làm việc</a>
                 <a href="#" data-target="controls-5">Chạy robot</a>

@@ -5,6 +5,7 @@ import time
 import webbrowser
 import cv2
 import numpy as np
+import socket
 import path
 import os
 from support_main.lib_main import edit_csv_tab
@@ -16,6 +17,27 @@ import detect_gicp
 import convert_2_lidar
 import driver_control_input
 
+# image_lock shared_data_lock
+
+def get_local_ip():
+    """
+    Tự động lấy địa chỉ IPv4 của máy tính trong mạng LAN.
+    """
+    s = None
+    try:
+        # Tạo một socket để kết nối ra ngoài.
+        # Không cần gửi dữ liệu, chỉ cần thực hiện kết nối để hệ điều hành
+        # chọn interface mạng phù hợp.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)) # 8.8.8.8 là DNS của Google
+        ip_address = s.getsockname()[0]
+        return ip_address
+    except Exception as e:
+        print(f"Không thể tự động lấy địa chỉ IP, sử dụng '12_7.0.0.1'. Lỗi: {e}")
+        return "127.0.0.1" # Trả về localhost nếu có lỗi
+    finally:
+        if s:
+            s.close()
 
 
 path_phan_mem = path.path_phan_mem
@@ -41,8 +63,8 @@ window_size = 700
 window_size_all = 5000
 scaling_factor = 0.05
 rmse1 = 3
-rmse2 = 3
-host = "172.26.76.151"
+rmse2 = 3 
+host = get_local_ip() # Tự động lấy IP
 port = "5000"
 loai_lidar = "usb"
 data_admin = edit_csv_tab.load_all_stt(path_admin)
@@ -58,20 +80,20 @@ for i in range(0,len(data_admin)):
             rmse1 = int(float(data_admin[i][1]))
         if data_admin[i][0] == "rmse2": # sai so cap nhat map
             rmse2 = int(float(data_admin[i][1]))
-        if data_admin[i][0] == "host": # server 
-            host = data_admin[i][1]
         if data_admin[i][0] == "port":
             port = int(float(data_admin[i][1]))
         if data_admin[i][0] == "loai_lidar":
             loai_lidar = data_admin[i][1]
 
-print("scaling_factor", scaling_factor)
+print("scaling_factor", scaling_factor, host)
 # host = "172.26.76.151"
 # port = "5000"
 path_folder_scan_data_0 = SAVED_DATA_DIR + "/scan_data_0"
 path_folder_scan_data_1 = SAVED_DATA_DIR + "/scan_data_1"
 path_folder_scan_data_2 = SAVED_DATA_DIR + "/scan_data_2"
 path_folder_scan_data_3 = SAVED_DATA_DIR + "/scan_data_3"
+
+
 
 def save_scan_to_npy(scan_data, filename, directory="scan_data"):
     """
@@ -242,12 +264,35 @@ class support_main:
             self.process_lidar.main_loop(scan_xy) # process_lidar.py cập nhật self.process_lidar.tam_x_agv, .tam_y_agv, .rotation
             # xử lý tín hiệu web gửi về, và gửi cho driver motor
             self.detect_data_driver.void_loop()
-            
+        
+        self.load_data_web()
         self.show_img()
+    def load_data_web(self):
+        ################################### lưu bản đồ ########################################
+        map_name_to_save = ""
+        # Sử dụng lock để đọc và ghi vào dictionary chia sẻ một cách an toàn.
+        # Thao tác này đảm bảo rằng luồng web không thể thay đổi dict_ban_do_moi
+        # trong khi luồng chính đang xử lý nó.
+        with app_web.shared_data_lock:
+            if app_web.dict_ban_do_moi["ten_ban_do_moi"] and app_web.dict_ban_do_moi["luu_ban_do_moi"] == 1:
+                map_name_to_save = app_web.dict_ban_do_moi["ten_ban_do_moi"]
+                # Reset các cờ ngay bên trong lock để tránh xử lý lại yêu cầu
+                app_web.dict_ban_do_moi["tao_ban_do_moi"] = 0
+                app_web.dict_ban_do_moi["ten_ban_do_moi"] = ""
+                app_web.dict_ban_do_moi["luu_ban_do_moi"] = 0
+            # Đọc trạng thái điều khiển bằng tay bên trong lock
+            self.data_sent_dk_driver["dk_tay"] = app_web.dict_ban_do_moi["tao_ban_do_moi"]
+        # Thực hiện việc lưu file (tốn thời gian) bên ngoài lock
+        if map_name_to_save:
+            self.save_current_map(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.map_all)
+            self.save_mask_map(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.mask_map_all)
+            self.save_point_cloud(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.global_map)
+        ################################### lưu bản đồ ########################################
+
 
     def show_img(self):
         if self.kiem_tra_connect["process_lidar"] == "on":
-            self.img = self.process_lidar.img2.copy()
+            self.img = self.process_lidar.img2
         
         
         color_gray = (120, 120, 120)
@@ -595,9 +640,6 @@ class support_main:
 # Tên cửa sổ hiển thị
 window_name = "image_all Image Display"
 
-host = "10.116.3.1"
-port = 5000
-
 # Hàm để chạy Flask trong một luồng riêng
 def run_flask():
     app.run(host=host, port=port, debug=False, use_reloader=False)
@@ -612,7 +654,7 @@ if __name__ == "__main__":
     time.sleep(2)
 
     # Mở trang web trong trình duyệt mặc định
-    webbrowser.open(f"http://{host}:{port}")
+    webbrowser.open(f"http://{get_local_ip()}:{port}")
 
 
     # Vòng lặp chính
