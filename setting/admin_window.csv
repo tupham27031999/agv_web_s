@@ -31,7 +31,7 @@
 2	dis_max				1300
 2	cong_lidar				COM4		256000
 2	cong_driver				COM5		115200	
-2	host					10.116.3.1				#172.26.75.208	10.116.3.1	
+2	host					0.0.0.0			#172.26.75.208	10.116.3.1	
 2	port					5000	
 2	khoang_cach_dich_min		3		# khoảng cách mà agv cần di chuyển chính xác (tại các điểm có hướng) nhỏ nhất là 2
 2	khoang_cach_dich_max		7		# khoảng cách mà agv cần di chuyển chính xác (tại các điểm không hướng) nhỏ nhất là 2
