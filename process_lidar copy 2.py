@@ -196,7 +196,7 @@ class process_data_lidar:
                 stop_agv = 0
                 tt = time.time()
                 self.map_all, self.mask_map_all, self.global_map, self.rmse, new_arr_ok, r, t = self.detect_gicp_lidar.detect(self.map_all.copy(), self.mask_map_all.copy(), self.global_map, arr_test, self.rmse1, self.rmse2, self.scaling_factor, update=self.add_all_point)
-                # print("-----------",time.time() - tt, self.rmse)
+                print("-----------",time.time() - tt, self.rmse)
                 # Sử dụng arctan2 để tính góc quay từ ma trận xoay r
                 # Đây là phương pháp chính xác và ổn định nhất, tránh các vấn đề của arccos
                 # Dấu trừ (-) có thể cần thiết tùy thuộc vào quy ước hệ tọa độ của bạn
@@ -236,6 +236,14 @@ class process_data_lidar:
                 # Sửa lại công thức tính delta_y để bù cho trục y ngược của ảnh
                 delta_y = (self.window_size_y_all//2 - self.y_goc) / self.scaling_factor
 
+                # # Sửa lỗi logic: Lưu lại giá trị gốc trước khi tính toán để tránh ghi đè
+                # cos_rot = math.cos(self.rotation)
+                # sin_rot = math.sin(self.rotation)
+                # x_orig = arr_test[:, 0].copy()
+                # y_orig = arr_test[:, 1].copy()
+                # arr_test[:, 0] = (x_orig * cos_rot - y_orig * sin_rot) + delta_x
+                # arr_test[:, 1] = (x_orig * sin_rot + y_orig * cos_rot) + delta_y
+
                 # Tạo ma trận biến đổi 4x4 (pose) mới và cập nhật cho GICP
                 cos_rot = math.cos(self.rotation)
                 sin_rot = math.sin(self.rotation)
@@ -244,25 +252,19 @@ class process_data_lidar:
                     [sin_rot,  cos_rot, 0, delta_y],
                     [0,              0, 1,    0   ],
                     [0,              0, 0,    1   ]])
-                # global_pose = np.array([
-                #     [cos_rot, -sin_rot, 0, delta_x],
-                #     [sin_rot,  cos_rot, 0, delta_y],
-                #     [0,              0, 1,    0   ],
-                #     [0,              0, 0,    1   ]])
-                # print("Đã cập nhật Global Pose mới cho GICP.")
+                print("Đã cập nhật Global Pose mới cho GICP.")
                 
 
                 # self.detect_gicp_lidar.global_pose = self.tao_ma_tran_xoay_tinh_tien(delta_x/self.scaling_factor, delta_y/self.scaling_factor, -self.scaling_factor) 
 
-                self.map_all, self.mask_map_all, self.global_map, self.rmse, new_arr_ok, r, t = self.detect_gicp_lidar.detect(self.map_all.copy(), self.mask_map_all.copy(), self.global_map, arr_test, self.rmse1, self.rmse2, self.scaling_factor, update=0, show_map_new=1)
-                new_arr_ok[:, 0] = new_arr_ok[:, 0] * self.scaling_factor + self.window_size_x_all//2
-                new_arr_ok[:, 1] = - new_arr_ok[:, 1] * self.scaling_factor + self.window_size_y_all//2
-                
-                
-                # current_points_global = detect_gicp.transform_points(arr_test, global_pose[:3, :3], global_pose[:3, 3])
+                self.map_all, self.mask_map_all, self.global_map, self.rmse, new_arr_ok, r, t = self.detect_gicp_lidar.detect(self.map_all.copy(), self.mask_map_all.copy(), self.global_map, arr_test, self.rmse1, self.rmse2, self.scaling_factor, update=0)
 
-                # new_arr_ok[:, 0] = arr_test[:, 0] * self.scaling_factor + self.window_size_x_all//2
-                # new_arr_ok[:, 1] = - arr_test[:, 1] * self.scaling_factor + self.window_size_y_all//2
+                # new_arr_ok[:, 0] = new_arr_ok[:, 0] * self.scaling_factor + self.window_size_x_all//2 
+                # new_arr_ok[:, 1] = - new_arr_ok[:, 1] * self.scaling_factor + self.window_size_y_all//2 
+
+
+                new_arr_ok[:, 0] = arr_test[:, 0] * self.scaling_factor + self.window_size_x_all//2
+                new_arr_ok[:, 1] = - arr_test[:, 1] * self.scaling_factor + self.window_size_y_all//2
 
                 # print("new_arr_ok", new_arr_ok)
                 for ii in range(0, max(len(new_arr_ok), new_arr_ok.shape[0])):
@@ -270,15 +272,16 @@ class process_data_lidar:
                     if ii < len(new_arr_ok[:, 0]) - 1 and int(new_arr_ok[ii, 0]) < w_img1 and int(new_arr_ok[ii, 1]) < h_img1:
                         cv2.circle(self.img1, (int(new_arr_ok[ii, 0]), int(new_arr_ok[ii, 1])), 1, (255, 0, 255), -1)
             # print(new_arr_ok)
-            self.tam_x_agv, self.tam_y_agv = self.translate_point(self.x_goc, self.y_goc, - self.rotation, distance=0)
+            self.tam_x_agv = self.x_goc
+            self.tam_y_agv = self.y_goc
 
             stop_agv = 1
         
         h_img1, w_img1, _ = self.img1.shape
         cv2.circle(self.img1, (int(self.tam_x_agv), int(self.tam_y_agv)), 5, (255, 0, 0), -1)
-        self.huong_x = int(self.tam_x_agv + 20 * math.cos(self.rotation - np.pi/2)) # thuan am, nghich dương
-        self.huong_y = int(self.tam_y_agv + 20 * math.sin(self.rotation - np.pi/2))
-        # print("@@@@@@@@@@@@@@@@@", (-self.rotation - np.pi/2)*180/np.pi)
+        self.huong_x = int(self.tam_x_agv + 20 * math.cos(-self.rotation)) # thuan am, nghich dương
+        self.huong_y = int(self.tam_y_agv + 20 * math.sin(-self.rotation))
+        # print("@@@@@@@@@@@@@@@@@", (-self.rotation)*180/np.pi)
 
         # print("self.rotation", self.rotation * 180 / np.pi, self.tam_x_agv, self.tam_y_agv)
         self.huong_x2 = int(self.tam_x_agv + 20 * math.cos(self.rotation - np.pi/2))
@@ -298,9 +301,7 @@ class process_data_lidar:
         if webserver.dict_dieu_chinh_vi_tri_agv["update"] == 0 and webserver.dict_dieu_chinh_vi_tri_agv["setup"] == 0:
             webserver.dict_dieu_chinh_vi_tri_agv["toa_do_x"] = self.tam_x_agv
             webserver.dict_dieu_chinh_vi_tri_agv["toa_do_y"] = self.tam_y_agv
-            webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"] = (self.rotation * 180 / np.pi) % 360
-        else:
-            webserver.run_and_stop = 0
+            webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"] = (-self.rotation * 180 / np.pi + 90) % 360
         self.sent_data_driver_motor["tam_x_agv"] = self.tam_x_agv
         self.sent_data_driver_motor["tam_y_agv"] = self.tam_y_agv
         self.sent_data_driver_motor["rotation"] = self.rotation
@@ -434,4 +435,3 @@ class process_data_lidar:
         pass
 
     
-

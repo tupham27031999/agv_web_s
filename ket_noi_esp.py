@@ -128,9 +128,6 @@ class Python_Esp:
                 self.out = ""
                 self.out = self.read_data()
                 if self.out != "":
-                    # if self.load_angle == 1:
-                    # and self.out != "8_1" and self.out != "8_0" and self.out != "3_1" and self.out != "3_0":
-                    # print(self.out, "------ttt-----")
                     if len(str(self.out).split("#")) >= 2:
                         if str(self.out).split("#")[0] == "data":
                             #  "data#" + data_load + "#" + "\r\n";

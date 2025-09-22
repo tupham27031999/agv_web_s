@@ -48,14 +48,27 @@ class LQRController:
         """
         # Giá trị lớn nhất và nhỏ nhất cho x, y
 
+        # Chuẩn hóa sai số góc về một hệ số (ví dụ từ 0 đến 1)
+        # Giả sử sai số góc quan trọng nhất là trong khoảng 90 độ
+        angle_factor = min(abs(angle_error) / 90.0, 1.0)
+
         
-        q_xy = 2*angle_error
-        q_xy = 2*angle_error
+        # q_xy = 2*angle_error
+        # q_xy = 2*angle_error
+
+        # Trọng số cơ bản
+        q_xy_base = 5.0
+        q_yaw_base = 1.0
 
         # Khi lệch góc lớn, giảm trọng số x, y, tăng yaw
         
+        # Điều chỉnh trọng số: khi sai số góc lớn (factor -> 1), giảm q_xy và tăng q_yaw
+        # Logic này tuân theo nguyên tắc: khi lệch hướng nhiều, ưu tiên quay đúng hướng trước.
+        q_xy = q_xy_base * (1.0 - angle_factor * 0.8) # Giảm trọng số vị trí khi góc lệch lớn
+        q_yaw = q_yaw_base + 15.0 * angle_factor      # Tăng mạnh trọng số góc khi góc lệch lớn
 
-        self.Q = np.diag([q_xy, q_xy, 0, 0.1])
+        # self.Q = np.diag([q_xy, q_xy, 0, 0.1])
+        self.Q = np.diag([q_xy, q_xy, q_yaw, 0.1])
         # print("self.Q",self.Q, q_xy, q_xy)
 
 def agv_lqr_control(max_speed, min_speed, 

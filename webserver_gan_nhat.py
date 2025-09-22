@@ -112,7 +112,6 @@ tin_hieu_nhan = {'name_agv': 'agv1', 'dich_den': "P2", 'trang_thai': 'run'}
 thoi_gian_nhan_str = "N/A"
 
 run_and_stop = 0 # "run" or "stop"
-open_loa = 0
 
 
 # points_color_red 
@@ -309,12 +308,6 @@ def main_web():
                 <div class="function-frame" id="frame-operation-status">
                     <h4>Trạng thái hoạt động</h4>
                     <button id="runStopBtn" onclick="toggleRunStop()">Run</button>
-                </div>
-
-                <!-- Loa Panel -->
-                <div class="function-frame" id="frame-speaker-control">
-                    <h4>Điều khiển Loa</h4>
-                    <button id="speakerBtn" onclick="toggleSpeaker()">Loa</button>
                 </div>
 
                 <!-- Cài đặt Panel -->
@@ -1263,7 +1256,6 @@ def main_web():
                             }}
                             console.log("clientPathsData for :", clientPathsData);
                             updateNextPointId();
-                            
                         }}
                     }});
             }}
@@ -1935,20 +1927,6 @@ def main_web():
                 }});
             }}
 
-            function toggleSpeaker() {{
-                fetch('/api/toggle_speaker', {{ method: 'POST' }})
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            alert('Đã gửi yêu cầu bật loa!');
-                        }} else {{
-                            alert('Lỗi: ' + data.message);
-                        }}
-                    }})
-                    .catch(error => console.error('Error toggling speaker:', error));
-            }}
-
-
         </script>
     </body>
     </html> 
@@ -2512,41 +2490,6 @@ def pc_sent_agv_endpoint():
     return jsonify({"status": "error", "message": "Invalid signal data. Expecting {'signal': 'your_string'}."}), 400
 
 
-def bresenham_line(x0, y0, x1, y1):
-    """Thuật toán Bresenham (phiên bản an toàn hơn) để tìm các điểm trên đường thẳng."""
-    points = []
-    x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
-    
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    
-    # Sử dụng biến cục bộ để không thay đổi tham số đầu vào
-    x, y = x0, y0
-    
-    if dx > dy:
-        err = dx // 2
-        while x != x1:
-            points.append([x, y])
-            err -= dy
-            if err < 0:
-                y += sy
-                err += dx
-            x += sx
-    else:
-        err = dy // 2
-        while y != y1:
-            points.append([x, y])
-            err -= dx
-            if err < 0:
-                x += sx
-                err += dy
-            y += sy
-            
-    points.append([x1, y1]) # Thêm điểm cuối cùng
-    return points
-
 # Endpoint để client lấy thông tin vị trí AGV
 @app.route('/get_agv_state', methods=['GET'])
 def get_agv_state_route():
@@ -2579,21 +2522,21 @@ def get_agv_state_route():
         rotated_local_body_corners = np.dot(local_body_corners_np, rotation_m.T)
         final_body_corners_map_space = rotated_local_body_corners + np.array([center_x_map, center_y_map])
 
-        # Lấy các điểm bao bên ngoài và điểm tâm cho thân AGV
+        # Rasterize the AGV body rectangle
+        min_x_body = int(np.floor(np.min(final_body_corners_map_space[:, 0])))
+        max_x_body = int(np.ceil(np.max(final_body_corners_map_space[:, 0])))
+        min_y_body = int(np.floor(np.min(final_body_corners_map_space[:, 1])))
+        max_y_body = int(np.ceil(np.max(final_body_corners_map_space[:, 1])))
+
+        # The contour for pointPolygonTest needs to be of type int32 or float32.
+        # final_body_corners_map_space is already float32 due to local_body_corners_np.
+        contour_body_for_test = final_body_corners_map_space.astype(np.float32) 
+
         temp_body_coords_list = []
-        
-        # Thêm điểm tâm
-        temp_body_coords_list.append([int(center_x_map), int(center_y_map)])
-
-        # Lấy các điểm trên đường viền bằng thuật toán Bresenham
-        corners = final_body_corners_map_space
-        num_corners = len(corners)
-        for i in range(num_corners):
-            p1 = corners[i]
-            p2 = corners[(i + 1) % num_corners]
-            line_points = bresenham_line(p1[0], p1[1], p2[0], p2[1])
-            temp_body_coords_list.extend(line_points)
-
+        for x_coord_test in range(min_x_body, max_x_body + 1):
+            for y_coord_test in range(min_y_body, max_y_body + 1):
+                if cv2.pointPolygonTest(contour_body_for_test, (float(x_coord_test), float(y_coord_test)), False) >= 0:
+                    temp_body_coords_list.append([x_coord_test, y_coord_test])
         agv_body_coords_list = temp_body_coords_list
 
         # AGV Arrow (Triangle) - Define local coords then rotate and translate
@@ -2624,16 +2567,16 @@ def get_agv_state_route():
                     temp_arrow_coords_list.append([x_coord_test, y_coord_test])
         agv_arrow_coords_list = temp_arrow_coords_list
 
-        # # Chuyển đổi NumPy arrays thành list để có thể serialize JSON
-        # if isinstance(points_color_blue, np.ndarray):
-        #     blue_points_list = points_color_blue.tolist()
-        # else: # Nếu là list, đảm bảo nó là list các list (cho JSON)
-        #     blue_points_list = [list(p) for p in points_color_blue] if points_color_blue else []
+        # Chuyển đổi NumPy arrays thành list để có thể serialize JSON
+        if isinstance(points_color_blue, np.ndarray):
+            blue_points_list = points_color_blue.tolist()
+        else: # Nếu là list, đảm bảo nó là list các list (cho JSON)
+            blue_points_list = [list(p) for p in points_color_blue] if points_color_blue else []
 
-        # if isinstance(points_color_red, np.ndarray):
-        #     red_points_list = points_color_red.tolist()
-        # else: # Nếu là list, đảm bảo nó là list các list
-        #     red_points_list = [list(p) for p in points_color_red] if points_color_red else []
+        if isinstance(points_color_red, np.ndarray):
+            red_points_list = points_color_red.tolist()
+        else: # Nếu là list, đảm bảo nó là list các list
+            red_points_list = [list(p) for p in points_color_red] if points_color_red else []
 
     # response = {
     #     "status": "success",
@@ -2677,14 +2620,6 @@ def toggle_run_stop_route():
 def get_run_stop_status_route():
     global run_and_stop
     return jsonify({"status": str(run_and_stop)})
-
-@app.route('/api/toggle_speaker', methods=['POST'])
-def toggle_speaker_route():
-    global open_loa
-    open_loa = 1
-    print(f"Biến open_loa đã được đặt thành: {open_loa}")
-    return jsonify({"status": "success", "message": "Yêu cầu bật loa đã được xử lý."})
-
 
 
 

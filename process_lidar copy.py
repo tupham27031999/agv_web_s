@@ -196,7 +196,7 @@ class process_data_lidar:
                 stop_agv = 0
                 tt = time.time()
                 self.map_all, self.mask_map_all, self.global_map, self.rmse, new_arr_ok, r, t = self.detect_gicp_lidar.detect(self.map_all.copy(), self.mask_map_all.copy(), self.global_map, arr_test, self.rmse1, self.rmse2, self.scaling_factor, update=self.add_all_point)
-                # print("-----------",time.time() - tt, self.rmse)
+                print("-----------",time.time() - tt, self.rmse)
                 # Sử dụng arctan2 để tính góc quay từ ma trận xoay r
                 # Đây là phương pháp chính xác và ổn định nhất, tránh các vấn đề của arccos
                 # Dấu trừ (-) có thể cần thiết tùy thuộc vào quy ước hệ tọa độ của bạn
@@ -216,71 +216,41 @@ class process_data_lidar:
                 self.add_map = 0
             else:
                 stop_agv = 1
-                new_arr_ok = arr_test
+                # new_arr_ok = arr_test
+                new_arr_ok[:, 0] = arr_test[:, 0] * self.scaling_factor + self.window_size_x_all//2 
+                new_arr_ok[:, 1] = - arr_test[:, 1] * self.scaling_factor + self.window_size_y_all//2 
             
             # self.rotation = self.normalize_angle_rad(self.rotation)
 
             self.tam_x_agv, self.tam_y_agv = self.translate_point(self.x_goc, self.y_goc, - self.rotation, distance=0)
 
         else:
-            
             new_arr_ok = arr_test
-            
+            self.x_goc = webserver.dict_dieu_chinh_vi_tri_agv["toa_do_x"]
+            self.y_goc = webserver.dict_dieu_chinh_vi_tri_agv["toa_do_y"]
+            self.rotation = webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"] * np.pi / 180
+
+            delta_x = self.window_size_x_all//2 - self.x_goc
+            delta_y = self.window_size_y_all//2 - self.y_goc
+
             if (webserver.dict_dieu_chinh_vi_tri_agv["setup"] == 1):
-                # print(webserver.dict_dieu_chinh_vi_tri_agv)
-                self.x_goc = int(float(webserver.dict_dieu_chinh_vi_tri_agv["toa_do_x"]))
-                self.y_goc = int(float(webserver.dict_dieu_chinh_vi_tri_agv["toa_do_y"]))
-                self.rotation = float(webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"]) * np.pi / 180
-
-                delta_x = (self.x_goc - self.window_size_x_all//2) / self.scaling_factor
-                # Sửa lại công thức tính delta_y để bù cho trục y ngược của ảnh
-                delta_y = (self.window_size_y_all//2 - self.y_goc) / self.scaling_factor
-
-                # Tạo ma trận biến đổi 4x4 (pose) mới và cập nhật cho GICP
-                cos_rot = math.cos(self.rotation)
-                sin_rot = math.sin(self.rotation)
-                self.detect_gicp_lidar.global_pose = np.array([
-                    [cos_rot, -sin_rot, 0, delta_x],
-                    [sin_rot,  cos_rot, 0, delta_y],
-                    [0,              0, 1,    0   ],
-                    [0,              0, 0,    1   ]])
-                # global_pose = np.array([
-                #     [cos_rot, -sin_rot, 0, delta_x],
-                #     [sin_rot,  cos_rot, 0, delta_y],
-                #     [0,              0, 1,    0   ],
-                #     [0,              0, 0,    1   ]])
-                # print("Đã cập nhật Global Pose mới cho GICP.")
+                # tinh tiến theo deltax, deltay, xoay theo self.rotation
+                new_arr_ok[:, 0] ,new_arr_ok[:, 1] = self.xoay_va_tinh_tien_diem(new_arr_ok[:, 0], new_arr_ok[:, 1], delta_x, delta_y, self.rotation)
                 
 
-                # self.detect_gicp_lidar.global_pose = self.tao_ma_tran_xoay_tinh_tien(delta_x/self.scaling_factor, delta_y/self.scaling_factor, -self.scaling_factor) 
-
-                self.map_all, self.mask_map_all, self.global_map, self.rmse, new_arr_ok, r, t = self.detect_gicp_lidar.detect(self.map_all.copy(), self.mask_map_all.copy(), self.global_map, arr_test, self.rmse1, self.rmse2, self.scaling_factor, update=0, show_map_new=1)
-                new_arr_ok[:, 0] = new_arr_ok[:, 0] * self.scaling_factor + self.window_size_x_all//2
-                new_arr_ok[:, 1] = - new_arr_ok[:, 1] * self.scaling_factor + self.window_size_y_all//2
-                
-                
-                # current_points_global = detect_gicp.transform_points(arr_test, global_pose[:3, :3], global_pose[:3, 3])
-
-                # new_arr_ok[:, 0] = arr_test[:, 0] * self.scaling_factor + self.window_size_x_all//2
-                # new_arr_ok[:, 1] = - arr_test[:, 1] * self.scaling_factor + self.window_size_y_all//2
-
-                # print("new_arr_ok", new_arr_ok)
-                for ii in range(0, max(len(new_arr_ok), new_arr_ok.shape[0])):
-                    # hiển thị kết quả của icp lên ảnh
-                    if ii < len(new_arr_ok[:, 0]) - 1 and int(new_arr_ok[ii, 0]) < w_img1 and int(new_arr_ok[ii, 1]) < h_img1:
-                        cv2.circle(self.img1, (int(new_arr_ok[ii, 0]), int(new_arr_ok[ii, 1])), 1, (255, 0, 255), -1)
-            # print(new_arr_ok)
-            self.tam_x_agv, self.tam_y_agv = self.translate_point(self.x_goc, self.y_goc, - self.rotation, distance=0)
+            
+            self.tam_x_agv = self.x_goc
+            self.tam_y_agv = self.y_goc
 
             stop_agv = 1
         
         h_img1, w_img1, _ = self.img1.shape
         cv2.circle(self.img1, (int(self.tam_x_agv), int(self.tam_y_agv)), 5, (255, 0, 0), -1)
-        self.huong_x = int(self.tam_x_agv + 20 * math.cos(self.rotation - np.pi/2)) # thuan am, nghich dương
-        self.huong_y = int(self.tam_y_agv + 20 * math.sin(self.rotation - np.pi/2))
-        # print("@@@@@@@@@@@@@@@@@", (-self.rotation - np.pi/2)*180/np.pi)
+        self.huong_x = int(self.tam_x_agv + 20 * math.cos(-self.rotation)) # thuan am, nghich dương
+        self.huong_y = int(self.tam_y_agv + 20 * math.sin(-self.rotation))
+        # print("@@@@@@@@@@@@@@@@@", (-self.rotation)*180/np.pi)
 
-        # print("self.rotation", self.rotation * 180 / np.pi, self.tam_x_agv, self.tam_y_agv)
+        print("self.rotation", self.rotation * 180 / np.pi, self.tam_x_agv, self.tam_y_agv)
         self.huong_x2 = int(self.tam_x_agv + 20 * math.cos(self.rotation - np.pi/2))
         self.huong_y2 = int(self.tam_y_agv + 20 * math.sin(self.rotation - np.pi/2))
 
@@ -298,9 +268,7 @@ class process_data_lidar:
         if webserver.dict_dieu_chinh_vi_tri_agv["update"] == 0 and webserver.dict_dieu_chinh_vi_tri_agv["setup"] == 0:
             webserver.dict_dieu_chinh_vi_tri_agv["toa_do_x"] = self.tam_x_agv
             webserver.dict_dieu_chinh_vi_tri_agv["toa_do_y"] = self.tam_y_agv
-            webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"] = (self.rotation * 180 / np.pi) % 360
-        else:
-            webserver.run_and_stop = 0
+            webserver.dict_dieu_chinh_vi_tri_agv["goc_agv"] = (-self.rotation * 180 / np.pi + 90) % 360
         self.sent_data_driver_motor["tam_x_agv"] = self.tam_x_agv
         self.sent_data_driver_motor["tam_y_agv"] = self.tam_y_agv
         self.sent_data_driver_motor["rotation"] = self.rotation
@@ -308,42 +276,7 @@ class process_data_lidar:
         self.sent_data_driver_motor["huong_x"] = self.huong_x
         self.sent_data_driver_motor["huong_y"] = self.huong_y
 
-    def tao_ma_tran_xoay_tinh_tien(self, deltax, deltay, goc_quay_do):
-        """
-        Tạo ma trận biến đổi 4x4 cho phép xoay 2D và tịnh tiến 2D.
-
-        Ma trận này thực hiện phép xoay quanh trục Z và sau đó tịnh tiến
-        trên mặt phẳng XY. Đây là phép biến đổi affine phổ biến trong không gian 2D.
-
-        Args:
-            deltax (float): Độ dịch chuyển theo trục x.
-            deltay (float): Độ dịch chuyển theo trục y.
-            goc_quay_do (float): Góc quay quanh trục Z (tính bằng độ).
-                                Giá trị dương là quay ngược chiều kim đồng hồ.
-
-        Returns:
-            np.ndarray: Ma trận biến đổi 4x4.
-        """
-        # 1. Chuyển đổi góc từ độ sang radian vì các hàm sin/cos trong Python dùng radian
-        goc_quay_rad = math.radians(goc_quay_do)
-        cos_theta = math.cos(goc_quay_rad)
-        sin_theta = math.sin(goc_quay_rad)
-
-        # 2. Tạo ma trận biến đổi 4x4
-        #    Cấu trúc ma trận:
-        #    | cosθ  -sinθ   0   deltax |
-        #    | sinθ   cosθ   0   deltay |
-        #    |  0      0     1      0   |
-        #    |  0      0     0      1   |
-        transformation_matrix = np.array([
-            [cos_theta, -sin_theta, 0, deltax],
-            [sin_theta,  cos_theta, 0, deltay],
-            [0,                0, 1,      0],
-            [0,                0, 0,      1]
-        ])
-
-        return transformation_matrix
-    def xoay_va_tinh_tien_diem(self, px, py, deltax, deltay, goc_quay_rad,  scaling_factor=1):
+    def xoay_va_tinh_tien_diem(self, px, py, deltax, deltay, goc_quay_rad):
         """
         Xoay và tịnh tiến một tập hợp các điểm 2D.
 
@@ -376,7 +309,7 @@ class process_data_lidar:
 
         # 3. Kết hợp px và py thành một mảng các điểm (N, 2)
         # Mỗi hàng là một điểm [x, y]
-        points = np.vstack((px*scaling_factor, py*scaling_factor)).T
+        points = np.vstack((px, py)).T
 
         # 4. Áp dụng phép xoay
         # Vì các điểm là vector hàng, ta nhân với ma trận chuyển vị của R
@@ -388,8 +321,8 @@ class process_data_lidar:
         transformed_points = rotated_points + translation_vector
 
         # 6. Tách mảng kết quả thành px_moi và py_moi
-        px_moi = transformed_points[:, 0] + self.window_size_x_all // 2
-        py_moi = transformed_points[:, 1] + self.window_size_y_all // 2
+        px_moi = transformed_points[:, 0]
+        py_moi = transformed_points[:, 1]
 
         return px_moi, py_moi
     def translate_point(self, x, y, alpha, distance=5):
@@ -434,4 +367,3 @@ class process_data_lidar:
         pass
 
     
-

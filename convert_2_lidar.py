@@ -72,7 +72,10 @@ def transform_lidar_points(scan_data_lidar, lidar_pos_on_agv, lidar_orientation_
     # if alpha1 <= alpha2:
     #     mask_angle = (angles_deg >= alpha1) & (angles_deg <= alpha2)
     # else:
-    mask_angle = (angles_deg <= alpha1) | (angles_deg >= alpha2)
+
+    # mask_angle = (angles_deg <= alpha1) | (angles_deg >= alpha2)
+
+    mask_angle = (angles_deg >= alpha1) & (angles_deg <= alpha2)
     
     mask_distance = (distances > 0)
 
@@ -270,17 +273,21 @@ def load_lidar_data2(folder_path, file_index):
 def convert_scan_lidar(scan1_data_example=np.array([[0, 0, 0]]), 
                        scan2_data_example=np.array([[0, 0, 0]]), 
                        scaling_factor = 0.05,
-                       lidar1_orient_deg = -45,
-                       lidar2_orient_deg = 126,
-                       agv_w=-16,
-                       agv_l=-27):
-
+                       lidar1_orient_deg = 45,
+                       lidar2_orient_deg = 0,
+                       agv_w=-45,
+                       agv_l=126):
+    # lidar1_orient_deg = -45,
+    # lidar2_orient_deg = 126,
+    # agv_w=-16,
+    #                    agv_l=-27)
     # Lidar 1: Vị trí và hướng (tùy chỉnh theo thực tế)
     lidar1_pos = (-agv_w / 2, agv_l / 2)
     lidar1_alpha_range = (anpha_scan[0], anpha_scan[1])
 
     # Lidar 2: Vị trí và hướng (tùy chỉnh theo thực tế)
-    lidar2_pos = (agv_w / 2, -agv_l / 2)
+    # lidar2_pos = (agv_w / 2, -agv_l / 2)
+    lidar2_pos = (-agv_w / 2, agv_l / 2)
     lidar2_alpha_range = (anpha_scan[0], anpha_scan[1])
 
     # print("scan0_data_example,",scan0_data_example)

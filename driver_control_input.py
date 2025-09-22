@@ -1,12 +1,14 @@
 import webserver
-from support_main import crop_img_Atar, tim_duong_di, connect_driver
+from support_main import crop_img_Atar, tim_duong_di, connect_driver, music
 import numpy as np
 import path, os
 from support_main.lib_main import edit_csv_tab
 import scan_an_toan
 import process_lidar
 import ket_noi_esp
-import threading
+import threading, math
+import controller_motor
+import time
 
 path_phan_mem = path.path_phan_mem
 
@@ -68,16 +70,19 @@ for i in range(0,len(data_admin)):
             khoang_cach_dich_max = int(float(data_admin[i][1]))
 
 
-driver_motor_check = 0
-
+on_music = 1
 class detect_data_sent_driver:
-    def __init__(self, load_data_esp = 1):
+    def __init__(self, load_data_esp = 1, driver_motor_check = 0):
+        if on_music == 1:
+            threading.Thread(target=music.sound_speak).start()
+            music.name_music = "none"
+
         self.map_all = np.full((5000, 5000, 4), (150, 150, 150, 0), np.uint8)
         self.img1 = self.map_all.copy()
 
         self.khoang_canh_an_toan_tien = khoang_canh_an_toan_tien
-
-        if driver_motor_check == 1:
+        self.driver_motor_check = driver_motor_check
+        if self.driver_motor_check == 1:
             self.driver_motor = connect_driver.sent_data_driver()
         else:
             self.driver_motor = ""
@@ -106,10 +111,13 @@ class detect_data_sent_driver:
         self.di_cham = 0                    # load_data_process - ok
         self.a_v = 800
         self.dang_re = 0                    # xu_ly_tin_hieu - ok
-        self.tien_rl = 200
+        self.tien_rl = 0
+        self.v_tien_max_new = 0                 # load_data_web - ok
+        self.v_re_max_new = 0                   # load_data_web - ok
         
-        self.diem_dau = [] # dùng để tạo self.point_old
-        self.diem_dich = [] # dùng để tạo self.point_old, kiểm tra vị trí điểm 1 so với point_old
+        self.toa_do_diem_dau = [] # dùng để tạo 
+        self.toa_do_hien_tai = [] # dùng để tạo self.point_old
+        self.toa_do_diem_dich = [] # dùng để tạo self.point_old, kiểm tra vị trí điểm 1 so với point_old
         # Format: danh_sach_diem = {"tên điểm": [tọa độ x, tọa độ y, "loại điểm", góc agv]}
         self.danh_sach_diem = {}
         # Format: danh_sach_duong = {"tên đường": ["tên điểm 1", "tên điểm 2"]}
@@ -134,31 +142,53 @@ class detect_data_sent_driver:
         self.distance_old = 1000
         self.dk_agv_thu_cong = 0
         self.data_dk_tay = ""
+        self.check_an_toan = ""
 
+        self.connect_driver = 0
+        self.run_stop = 0
+        self.toa_do_x_agv = 0
+        self.toa_do_y_agv = 0
+        self.distan_max = 100
 
+        self.vt_trai = 100
+        self.vt_phai = 0
+        self.quay_phai = 0
+        self.quay_trai = 0
+
+        self.ten_diem_bat_dau = ""
 
         
     def reset_data(self):
         pass
-
+    def load_run_and_stop(self):
+        self.run_auto_controller = webserver.run_and_stop
     def void_loop(self):
-        if self.run_auto_controller == 1:
+        self.load_run_and_stop() # load trạng thái run/stop từ web
+        if self.data_dk_tay == "":
             self.load_data_process() # load các giá trị tọa độ góc của agv, check an toàn
             self.xu_ly_tin_hieu() # load các giá trị điểm đầu điểm đích, ... từ web, sau đó tính các giá trị góc, khoảng cách yêu cầu
-            if driver_motor_check == 1 and self.driver_motor.connect == True: # điều khiển động cơ
-                if self.data_dk_tay != "":
-                    self.driver_motor.dk_agv_thu_cong = self.dk_agv_thu_cong
-                    self.dk_ban_phim(self.data_dk_tay)
-                else:
+        if self.driver_motor_check == 1 and self.driver_motor.connect == True:
+            self.driver_motor.check_connect()
+            if self.data_dk_tay != "":
+                self.driver_motor.dk_agv_thu_cong = self.dk_agv_thu_cong
+                self.dk_ban_phim(self.data_dk_tay, 3000)
+            else:
+                if self.run_auto_controller == 1:
                     self.data_sent_drive() # gửi các giá trị tính toán, khai báo qua driver motor
+                else:
+                    self.stop_data_sent_drive()
 
-    def convert_tin_hieu(self, tin_hieu_str, danh_sach_diem, danh_sach_duong):
+            
+            
+            
+
+    def convert_tin_hieu(self, tin_hieu, danh_sach_diem, danh_sach_duong):
         """
         Kiểm tra và tách chuỗi tín hiệu AGV.
 
         Args:
-            tin_hieu_str (str): Chuỗi tín hiệu đầu vào.
-                                Ví dụ: "P1-P3-VT_5000-VR_500-T_IN1.1-TT_IN2.1"
+            tin_hieu: json tín hiệu đầu vào.
+                                Ví dụ:  {'name_agv': 'agv1', 'dich_den': "P1", 'trang_thai': 'run'}
             danh_sach_diem (dict): Dictionary chứa thông tin các điểm.
                                 Ví dụ: {"P1": [100, 200, "không hướng", 0], ...}
             danh_sach_duong (dict): Dictionary chứa thông tin các đường đi.
@@ -167,85 +197,89 @@ class detect_data_sent_driver:
         Returns:
             dict: Dictionary chứa thông tin đã được xử lý.
         """
+        # data_all = {
+        #     "tín hiệu hợp lệ": "True", # Mặc định là True, sẽ đổi thành False nếu cần
+        #     "điểm hiện tại": self.diem_hien_tai,
+        #     "điểm đích": "None",
+        #     "góc điểm đích": ["không hướng", 0],
+        #     "tiến max": "None",
+        #     "rẽ max": "None",
+        #     "tín hiệu input": [],
+        #     "tín hiệu tạm thời": []
+        # }
+
         data_all = {
             "tín hiệu hợp lệ": "True", # Mặc định là True, sẽ đổi thành False nếu cần
-            "điểm 1": "None",
-            "điểm 2": "None",
-            "góc điểm 2": ["không hướng", 0],
+            "tên điểm bắt đầu": "",
+            "tọa độ điểm bắt đầu": [],
+            "tên điểm đích": "None",
+            "tọa độ điểm đích": [],
+            "góc điểm đích": ["không hướng", 0],
             "tiến max": "None",
             "rẽ max": "None",
-            "tín hiệu": [],
+            "tín hiệu input": [],
             "tín hiệu tạm thời": []
         }
-        parts = tin_hieu_str.split('-')
+        # {'name_agv': 'agv1', 'dich_den': 'P2', 'trang_thai': 'run'}
+        data_all["tín hiệu hợp lệ"] = "True"
+        diem_dich = tin_hieu["dich_den"]
+        diem_dau, khoang_cach = self.tim_diem_gan_nhat([self.toa_do_x_agv, self.toa_do_y_agv], danh_sach_diem)
+        # print("khoang_cach", diem_dau, khoang_cach)
+        if khoang_cach <= 25:
+            if self.ten_diem_bat_dau == "":
+                self.ten_diem_bat_dau = diem_dau
+        # else:
+        #     self.ten_diem_bat_dau = ""
+        # print(tin_hieu)
 
-        if len(parts) < 2:
-            data_all["tín hiệu hợp lệ"] = "False" # Không đủ thông tin điểm
-            return data_all # Không đủ thông tin điểm
+        # diem_dich = tin_hieu.get('dich_den', "None")
+        tien_max = tin_hieu.get('van_toc_tien_max', "None")
+        # print("tien_maxx", tien_max)
+        if tien_max != "None":
+            data_all["tiến max"] = tien_max
+            # print("tien_maxx", self.v_tien_max)
+        re_max = tin_hieu.get('van_toc_re_max', "None")
+        # print("re_max", re_max)
+        if re_max == "None":
+            data_all["rẽ max"] = re_max
+            # print("re_max", self.v_re_max)
+        tin_hieu_input = tin_hieu.get('tin_hieu_input', [])
+        tin_hieu_tam_thoi = tin_hieu.get('tin_hieu_tam_thoi', [])
 
-        diem1_str = parts[0]
-        diem2_str = parts[1]
-
-        # Kiểm tra sự tồn tại của điểm 1 và điểm 2
-        if diem1_str in danh_sach_diem:
-            data_all["điểm 1"] = diem1_str
+        # Kiểm tra sự tồn tại của điểm bắt đầu 
+        if self.ten_diem_bat_dau in danh_sach_diem:
+            data_all["tên điểm bắt đầu"] = self.ten_diem_bat_dau
+            data_all["tọa độ điểm bắt đầu"] = [danh_sach_diem[self.ten_diem_bat_dau][0], danh_sach_diem[self.ten_diem_bat_dau][1]]
         else:
-            data_all["tín hiệu hợp lệ"] = "False" # Điểm 1 không hợp lệ
-
-        if diem2_str in danh_sach_diem:
-            data_all["điểm 2"] = diem2_str
-            # Lấy thông tin góc của điểm 2
-            data_all["góc điểm 2"] = [danh_sach_diem[diem2_str][2], danh_sach_diem[diem2_str][3]]
+            data_all["tín hiệu hợp lệ"] = "Điểm bắt đầu không tồn tại trong danh sách điểm."
+            # print("Điểm bắt đầu không tồn tại trong danh sách điểm.")
+        # Kiểm tra sự tồn tại của điểm đích
+        if diem_dich in danh_sach_diem:
+            data_all["tên điểm đích"] = diem_dich
+            data_all["tọa độ điểm đích"] = [danh_sach_diem[diem_dich][0], danh_sach_diem[diem_dich][1]]
+            # Lấy thông tin góc của điểm đích
+            data_all["góc điểm đích"] = [danh_sach_diem[diem_dich][2], danh_sach_diem[diem_dich][3]]
         else:
-            data_all["tín hiệu hợp lệ"] = "False" # Điểm 2 không hợp lệ
-
-        # Nếu một trong các điểm không hợp lệ, thì tín hiệu tổng thể không hợp lệ
-        # nhưng vẫn tiếp tục parse các phần khác
-        if data_all["điểm 1"] == "None" or data_all["điểm 2"] == "None":
-            data_all["tín hiệu hợp lệ"] = "False"
-
+            data_all["tín hiệu hợp lệ"] = "Điểm đích không tồn tại trong danh sách điểm."
+            # print("Điểm đích không tồn tại trong danh sách điểm.")
 
         # Kiểm tra đường đi giữa điểm 1 và điểm 2
+        # print(danh_sach_diem)
+        # print(danh_sach_duong)
         # Chỉ thực hiện kiểm tra đường đi nếu cả hai điểm đều hợp lệ
-        if data_all["điểm 1"] != "None" and data_all["điểm 2"] != "None":
-            duong_truc_tiep = f"{diem1_str}_{diem2_str}"
-            duong_nguoc_lai = f"{diem2_str}_{diem1_str}"
-            if not (duong_truc_tiep in danh_sach_duong or duong_nguoc_lai in danh_sach_duong):
-                data_all["tín hiệu hợp lệ"] = "False"
+        if data_all["tên điểm bắt đầu"] != "None" and data_all["tên điểm đích"] != "None":
+            duong_truc_tiep = str(data_all["tên điểm đích"]) + "_" + str(data_all["tên điểm bắt đầu"])
+            duong_nguoc_lai = str(data_all["tên điểm bắt đầu"]) + "_" + str(data_all["tên điểm đích"])
+            if (duong_truc_tiep not in danh_sach_duong) and (duong_nguoc_lai not in danh_sach_duong):
+                # print("llllllllllll", duong_truc_tiep, duong_nguoc_lai)
+                data_all["tín hiệu hợp lệ"] = "Không có đường đi trực tiếp giữa điểm bắt đầu và điểm đích."
+                # print("Không có đường đi trực tiếp giữa điểm bắt đầu và điểm đích.")
         else: # Nếu điểm không hợp lệ, đường đi chắc chắn không hợp lệ
-            data_all["tín hiệu hợp lệ"] = "False"
+            data_all["tín hiệu hợp lệ"] = "Điểm bắt đầu hoặc điểm đích không hợp lệ."
+            # print("Điểm bắt đầu hoặc điểm đích không hợp lệ.")
 
+        
 
-        # Xử lý các phần còn lại của tín hiệu
-        for part in parts[2:]:
-            if part.startswith("VT_"):
-                try:
-                    data_all["tiến max"] = part.split('_')[1]
-                except IndexError:
-                    pass # Bỏ qua nếu định dạng sai
-            elif part.startswith("VR_"):
-                try:
-                    data_all["rẽ max"] = part.split('_')[1]
-                except IndexError:
-                    pass # Bỏ qua nếu định dạng sai
-            elif part.startswith("T_"):
-                try:
-                    signals_str = part.split('_')[1:] # Bỏ "T"
-                    for sig_pair_str in signals_str:
-                        sig_parts = sig_pair_str.split('.')
-                        if len(sig_parts) == 2:
-                            data_all["tín hiệu"].append([sig_parts[0], sig_parts[1]])
-                except IndexError:
-                    pass # Bỏ qua nếu định dạng sai
-            elif part.startswith("TT_"):
-                try:
-                    signals_str = part.split('_')[1:] # Bỏ "TT"
-                    for sig_pair_str in signals_str:
-                        sig_parts = sig_pair_str.split('.')
-                        if len(sig_parts) == 2:
-                            data_all["tín hiệu tạm thời"].append([sig_parts[0], sig_parts[1]])
-                except IndexError:
-                    pass # Bỏ qua nếu định dạng sai
         return data_all
 
     def kiem_tra_tin_hieu_esp32(self, data):
@@ -296,15 +330,20 @@ class detect_data_sent_driver:
         # Nếu tất cả các điều kiện trong check_data đều được kiểm tra và khớp
         return True
     def load_data_web(self):
-        tin_hieu_nhan = webserver.tin_hieu_nhan
+        tin_hieu_nhan = webserver.tin_hieu_nhan # {'name_agv': 'agv1', 'dich_den': "P2", 'trang_thai': 'run'}
         dict_cai_dat = webserver.dict_cai_dat
         self.danh_sach_diem = webserver.danh_sach_diem
         self.danh_sach_duong = webserver.danh_sach_duong
+        self.run_stop = webserver.run_and_stop
+        self.toa_do_x_agv = webserver.dict_dieu_chinh_vi_tri_agv["toa_do_x"]
+        self.toa_do_y_agv = webserver.dict_dieu_chinh_vi_tri_agv["toa_do_y"]
         self.v_tien_max = dict_cai_dat["van_toc_tien_max"]
         self.v_re_max = dict_cai_dat["van_toc_re_max"]
+
         return tin_hieu_nhan
     
     def xu_ly_tin_hieu(self):
+
         # {"run_diem_2": "NG", "run_huong": "NG", "run_tin_hieu": "NG", "run_tin_hieu_tam_thoi": "NG"}
         
         # data_all = {
@@ -319,171 +358,201 @@ class detect_data_sent_driver:
         # }
 
         tin_hieu_nhan = self.load_data_web()
-        data_tin_hieu_nhan =  self.convert_tin_hieu(tin_hieu_nhan, self.danh_sach_diem, self.danh_sach_duong)
-        tien_max = data_tin_hieu_nhan["tiến max"]
-        re_max = data_tin_hieu_nhan["rẽ max"]
-        diem_dau = data_tin_hieu_nhan["điểm 1"]
-        diem_dich = data_tin_hieu_nhan["điểm 2"]
-        goc_dich = data_tin_hieu_nhan["góc điểm 2"]
-        tin_hieu_hop_le = data_tin_hieu_nhan["tín hiệu hợp lệ"]
-        tin_hieu = data_tin_hieu_nhan["tín hiệu"]
-        tin_hieu_tam_thoi = data_tin_hieu_nhan["tín hiệu tạm thời"]
-        
-        if tin_hieu_hop_le == "False" or self.stop_rmse == 1 or self.stop_vat_can == 1:
-            self.stop = 1
-            self.stop_sent_driver = 1
-        if self.stop == 1 or self.stop_sent_driver == 1:
-            if self.name_music != "none":
-                if self.name_music == "re_trai":
-                    self.name_music = "none"
-                if self.name_music == "re_phai":
-                    self.name_music = "none"
-        if self.stop == 0:
-            
-            self.stop_xu_ly_tin_hieu = 1
-            if tien_max != "None":
-                self.v_tien_max = int(float(tien_max))
-            if re_max != "None":
-                self.v_re_max = int(float(re_max))
+        if tin_hieu_nhan != {} and self.run_stop == 1:
+            data_tin_hieu_nhan =  self.convert_tin_hieu(tin_hieu_nhan, self.danh_sach_diem, self.danh_sach_duong)
+            # data_tin_hieu_nhan = {'tín hiệu hợp lệ': 'True', 
+            #                     'tên điểm bắt đầu': 'P1', 
+            #                     'tọa độ điểm bắt đầu': [972, 892], 
+            #                     'tên điểm đích': 'P2', 
+            #                     'tọa độ điểm đích': [1010, 972], 
+            #                     'góc điểm đích': ['không hướng', 0.0], 
+            #                     'tiến max': 2000, 'rẽ max': 500, 
+            #                     'tín hiệu input': [], 
+            #                     'tín hiệu tạm thời': []}
 
-            if goc_dich[0] == "không hướng":
-                self.convert_data_run_agv["run_huong"] = "OK"
-            
-            # kiem tra tin hieu
-            if len(tin_hieu) != 0:
-                if self.kiem_tra_tin_hieu_esp32(tin_hieu) == True:
-                    tin_hieu = []
-            if len(tin_hieu_tam_thoi) != 0:
-                if self.kiem_tra_tin_hieu_esp32(tin_hieu_tam_thoi) == True:
-                    self.done_tin_hieu_tam_thoi = 1
+            tien_max = data_tin_hieu_nhan["tiến max"]
+            re_max = data_tin_hieu_nhan["rẽ max"]
+            ten_diem_dau = data_tin_hieu_nhan["tên điểm bắt đầu"]
+            toa_do_diem_dau = data_tin_hieu_nhan["tọa độ điểm bắt đầu"]
+            ten_diem_dich = data_tin_hieu_nhan["tên điểm đích"]
+            toa_do_diem_dich = data_tin_hieu_nhan["tọa độ điểm đích"]
+            goc_dich = data_tin_hieu_nhan["góc điểm đích"]
+            tin_hieu_hop_le = data_tin_hieu_nhan["tín hiệu hợp lệ"]
+            tin_hieu = data_tin_hieu_nhan["tín hiệu input"]
+            tin_hieu_tam_thoi = data_tin_hieu_nhan["tín hiệu tạm thời"]
+            # print("data_tin_hieu_nhan", data_tin_hieu_nhan)
+            # print("--------------------------------------------------------------------------")
+            # print("tin_hieu_hop_leor self.stop_rmse == 1 or self.stop_vat_can == 1", tin_hieu_hop_le, self.stop_rmse, self.stop_vat_can == 1)
+            stop = 0
+            if tin_hieu_hop_le != "True" or self.stop_rmse == 1 or self.stop_vat_can == 1:
+                stop = 1
+                self.stop_sent_driver = 1
+                print("stop do tin hieu khong hop le hoac rmse hoac vat can")
 
-            if len(tin_hieu) == 0:
-                self.convert_data_run_agv["run_tin_hieu"] = "OK"
-            else:
-                self.convert_data_run_agv["run_tin_hieu"] = "NG"
-            if self.done_tin_hieu_tam_thoi == 1:
-                self.convert_data_run_agv["run_tin_hieu_tam_thoi"] = "OK"
+            if self.convert_data_run_agv["run_diem_2"] == "OK" and self.convert_data_run_agv["run_huong"] == "OK": ##################### test tạm thời
+                stop = 1
 
-            
-            if len(diem_dau) != 0:
-                if len(self.diem_dau) != 0:
-                    if diem_dau[0] != self.diem_dau[0] or diem_dau[1] != self.diem_dau[1]:
-                        self.point_old = self.diem_dau
-            self.diem_dau = diem_dau
-            self.diem_dich = diem_dich
 
-            # xử lý tín hiệu web truyền tới
-            if len(self.diem_dau) != 0 and self.diem_dich != 0:
-                point_end_LQR = self.diem_dich
-                goc_quay_check = 0
-                distance = 0
-                check_angle_distance = "distance"
-                if self.convert_data_run_agv["run_diem_2"] != "OK":
-                    # load điểm gần agv để đi tới
-                    check, distance, angle_deg = tim_duong_di.calculate_distance_and_angle(self.diem_dau, self.diem_dich, self.robot_direction)
-                    if distance > 80:
-                        img_Astar, max_point_Astar, x_min_Astar, y_min_Astar, x_max_Astar, y_max_Astar = crop_img_Atar.img_crop(self.img1.copy(), 
-                                                                                            self.diem_dau.copy(), self.diem_dich.copy(), distance = 80)
-                        point_end_LQR = [max_point_Astar[0],max_point_Astar[1]]
-
-                    # xác định khoảng cách và góc điểm đích
-                    # check, distance, angle_deg = tim_duong_di.calculate_distance_and_angle(self.diem_dau, self.diem_dich, self.robot_direction)
-                    check_kc, distance_kc, angle_deg_kc = tim_duong_di.calculate_distance_and_angle(self.diem_dau, self.point_old, self.robot_direction)
-
-                    check_line, distance_line, angle_deg_line = tim_duong_di.calculate_distance_and_angle(self.diem_dich, self.point_old, self.diem_dau)
-                    # goc bám sát đường đi
-                    if angle_deg_line > 90:
-                        angle_deg_line = 180 - angle_deg_line
-                    if angle_deg_line < -90:
-                        angle_deg_line = -180 - angle_deg_line
-                    # goc quay yêu cầu
-                    goc_quay_check = angle_deg - angle_deg_line
-
-                    # thay đổi quét vật cản khi vật đi chậm và gần đích
-                    vt_check_kc = max(self.driver_motor.vt_phai * 10, self.driver_motor.vt_trai * 10)
-                    number_kc = 0
-                    if vt_check_kc <= 2000 and (distance < 50 or distance_kc < 50):
-                    # if vt_check_kc <= 2000 and (distance < 50):
-                        a = int(vt_check_kc / 100)
-                        number_kc = 20 - a
-                        if number_kc > 15:
-                            number_kc = 15
-                    self.khoang_canh_an_toan_tien = [khoang_canh_an_toan_tien[0], khoang_canh_an_toan_tien[1] - number_kc]
-
-                    # agv rẽ trái hoặc phải
-                    if abs(angle_deg) > 30:
-                        self.dang_re = 1
-                    if abs(angle_deg) < 12 and self.dang_re == 1:
-                        self.dang_re = 0
-                    if on_music == 1:
-                        # music
-                        if angle_deg < -30:
-                            self.name_music = "re_phai"
-                        else:
-                            if self.name_music == "re_phai":
-                                self.name_music = "none"
-
-                        if angle_deg > 30:
-                            self.name_music = "re_trai"
-                        else:
-                            if self.name_music == "re_trai":
-                                self.name_music = "none"
-
-                    # lựa chọn khoảng cách đến đích
-                    khoang_cach_dich = khoang_cach_dich_min
-                    if self.convert_data_run_agv["run_huong"] == "OK":
-                        khoang_cach_dich = khoang_cach_dich_max
-                    # kiểm tra điều kiện đã đến đích
-                    if (distance <= 2 or distance <= khoang_cach_dich  or (distance > self.distance_old and self.distance_old <= khoang_cach_dich)):
-                        self.convert_data_run_agv["run_diem_2"] = "OK"
-                    if distance < self.distance_old:
-                        self.distance_old = distance
+            self.stop = stop
+            if self.stop == 1 or self.stop_sent_driver == 1:
+                if self.name_music != "none":
+                    if self.name_music == "re_trai":
+                        self.name_music = "none"
+                    if self.name_music == "re_phai":
+                        self.name_music = "none"
+            # print("stop", self.stop)
+            if self.stop == 0:
+                
+                self.stop_xu_ly_tin_hieu = 1
+                if tien_max != "None":
+                    self.v_tien_max_new = int(float(tien_max))
                 else:
-                    if self.convert_data_run_agv["run_huong"] != "OK":
-                        check_angle_distance = "angle"
-                        start_point = self.point_start_LQR
-                        robot_direction = self.robot_direction
-                        A = np.array(diem_dich)
-                        C = np.array(start_point)
-                        B = np.array(robot_direction)
-                        # Tính vector AC
-                        AC = C - A
-                        # Tịnh tiến điểm B theo vector AC
-                        end_point_angle = B + AC
-                        check_ang, distance_ang, angle_deg = tim_duong_di.calculate_distance_and_angle(start_point, end_point_angle, robot_direction)
+                    self.v_tien_max_new = self.v_tien_max
+                    # v_tien_max
+                if re_max != "None":
+                    self.v_re_max_new = int(float(re_max))
+                else:
+                    self.v_re_max_new = self.v_re_max
 
-                        goc_quay_check = angle_deg
-                        self.dang_re = 1
+                if goc_dich[0] != "có hướng":
+                    self.convert_data_run_agv["run_huong"] = "OK"
+                
+                # kiem tra tin hieu
+                if len(tin_hieu) != 0:
+                    if self.kiem_tra_tin_hieu_esp32(tin_hieu) == True:
+                        tin_hieu = []
+                if len(tin_hieu_tam_thoi) != 0:
+                    if self.kiem_tra_tin_hieu_esp32(tin_hieu_tam_thoi) == True:
+                        self.done_tin_hieu_tam_thoi = 1
 
-                        # music
+                if len(tin_hieu) == 0:
+                    self.convert_data_run_agv["run_tin_hieu"] = "OK"
+                else:
+                    self.convert_data_run_agv["run_tin_hieu"] = "NG"
+                if self.done_tin_hieu_tam_thoi == 1:
+                    self.convert_data_run_agv["run_tin_hieu_tam_thoi"] = "OK"
+
+                self.toa_do_diem_dau = toa_do_diem_dau
+                self.toa_do_diem_dich = toa_do_diem_dich
+
+                # xử lý tín hiệu web truyền tới
+                if len(self.toa_do_diem_dau) != 0 and len(self.toa_do_diem_dich) != 0:
+                    point_end_LQR = self.toa_do_diem_dich
+                    goc_quay_check = 0
+                    distance = 0
+                    check_angle_distance = "distance"
+                    if self.convert_data_run_agv["run_diem_2"] != "OK":
+
+                        # load điểm gần agv để đi tới
+                        check, distance, angle_deg = tim_duong_di.calculate_distance_and_angle(self.toa_do_hien_tai, self.toa_do_diem_dich, self.robot_direction)
+                        print("1111111111111",distance,angle_deg, self.toa_do_hien_tai, self.toa_do_diem_dich, self.robot_direction, ten_diem_dau, ten_diem_dich)
+                        if distance > 80:
+                            img_Astar, max_point_Astar, x_min_Astar, y_min_Astar, x_max_Astar, y_max_Astar = crop_img_Atar.img_crop(self.img1.copy(), 
+                                                                                                self.toa_do_diem_dau.copy(), self.toa_do_diem_dich.copy(), distance = 80)
+                            point_end_LQR = [max_point_Astar[0],max_point_Astar[1]]
+
+                        # xác định khoảng cách và góc điểm đích 
+                        # check, distance, angle_deg = tim_duong_di.calculate_distance_and_angle(self.diem_dau, self.diem_dich, self.robot_direction)
+                        check_kc, distance_kc, angle_deg_kc = tim_duong_di.calculate_distance_and_angle(self.toa_do_diem_dau, self.toa_do_hien_tai, self.robot_direction)
+                        check_line, distance_line, angle_deg_line = tim_duong_di.calculate_distance_and_angle(self.toa_do_diem_dich, self.toa_do_hien_tai, self.toa_do_diem_dau)
+                        # goc bám sát đường đi
+                        if angle_deg_line > 90:
+                            angle_deg_line = 180 - angle_deg_line
+                        if angle_deg_line < -90:
+                            angle_deg_line = -180 - angle_deg_line
+                        # goc quay yêu cầu
+                        print("222222222222222", angle_deg, angle_deg_line)
+                        goc_quay_check = angle_deg + angle_deg_line
+
+                        # thay đổi quét vật cản khi vật đi chậm và gần đích
+                        
+                        # vt_check_kc = max(self.driver_motor.vt_phai * 10, self.driver_motor.vt_trai * 10)
+                        vt_check_kc = 0  ######################################################################### test tạm thời
+                        number_kc = 0
+                        if vt_check_kc <= 2000 and (distance < 50 or distance_kc < 50):
+                        # if vt_check_kc <= 2000 and (distance < 50):
+                            a = int(vt_check_kc / 100)
+                            number_kc = 20 - a
+                            if number_kc > 15:
+                                number_kc = 15
+                        self.khoang_canh_an_toan_tien = [khoang_canh_an_toan_tien[0], khoang_canh_an_toan_tien[1] - number_kc]
+
+                        # agv rẽ trái hoặc phải
+                        if abs(angle_deg) > 30:
+                            self.dang_re = 1
+                        if abs(angle_deg) < 12 and self.dang_re == 1:
+                            self.dang_re = 0
                         if on_music == 1:
-                            if angle_deg < 0:
+                            # music
+                            if angle_deg < -30:
                                 self.name_music = "re_phai"
                             else:
                                 if self.name_music == "re_phai":
                                     self.name_music = "none"
 
-                            if angle_deg > 0:
+                            if angle_deg > 30:
                                 self.name_music = "re_trai"
                             else:
                                 if self.name_music == "re_trai":
                                     self.name_music = "none"
 
-                self.point_end_LQR = point_end_LQR
-                self.check_angle_distance = check_angle_distance
-                self.angle = goc_quay_check
-                self.distance = distance
-            else:
-                self.stop_sent_driver = 1
+                        # lựa chọn khoảng cách đến đích
+                        khoang_cach_dich = khoang_cach_dich_min
+                        if self.convert_data_run_agv["run_huong"] == "OK":
+                            khoang_cach_dich = khoang_cach_dich_max
+                        # kiểm tra điều kiện đã đến đích
+                        if (distance <= 2 or distance <= khoang_cach_dich  or (distance > self.distance_old and self.distance_old <= khoang_cach_dich)):
+                            self.convert_data_run_agv["run_diem_2"] = "OK"
+                        if distance < self.distance_old:
+                            self.distance_old = distance
+                    else:
+                        if self.convert_data_run_agv["run_huong"] != "OK":
+                            check_angle_distance = "angle"
+                            start_point = self.point_start_LQR
+                            robot_direction = self.robot_direction
+                            A = np.array(toa_do_diem_dich)
+                            C = np.array(start_point)
+                            B = np.array(robot_direction)
+                            # Tính vector AC
+                            AC = C - A
+                            # Tịnh tiến điểm B theo vector AC
+                            end_point_angle = B + AC
+                            check_ang, distance_ang, angle_deg = tim_duong_di.calculate_distance_and_angle(start_point, end_point_angle, robot_direction)
+
+                            goc_quay_check = angle_deg
+                            self.dang_re = 1
+
+                            # music
+                            if on_music == 1:
+                                if angle_deg < 0:
+                                    self.name_music = "re_phai"
+                                else:
+                                    if self.name_music == "re_phai":
+                                        self.name_music = "none"
+
+                                if angle_deg > 0:
+                                    self.name_music = "re_trai"
+                                else:
+                                    if self.name_music == "re_trai":
+                                        self.name_music = "none"
+                    
+
+                    self.point_end_LQR = point_end_LQR
+                    self.check_angle_distance = check_angle_distance
+                    self.angle = goc_quay_check
+                    self.distance = distance
+                    print("self.point_start_LQR, self.point_end_LQR, self.angle, self.distance, self.check_angle_distance", self.point_start_LQR, self.point_end_LQR, self.angle, self.distance, self.check_angle_distance)
+                else:
+                    self.stop_sent_driver = 1
+                    print("khong co diem dau hoac diem dich")
 
     def kiem_tra_dich_den(self):
         pass
     def load_data_process(self):
         sent_data_driver_motor = self.load_data_driver_motor
         # điểm 1 lần đầu (nếu là rỗng) scan
-        if len(self.diem_dau) == 0:
-            self.diem_dau = [sent_data_driver_motor["tam_x_agv"], sent_data_driver_motor["tam_y_agv"]]
-            self.point_old = self.diem_dau
+        self.toa_do_hien_tai = [sent_data_driver_motor["tam_x_agv"], sent_data_driver_motor["tam_y_agv"]]
+        # self.point_old = self.toa_do_diem_dau
 
         self.point_start_LQR = [sent_data_driver_motor["tam_x_agv"], sent_data_driver_motor["tam_y_agv"]]
         self.goc_agv = sent_data_driver_motor["rotation"]
@@ -491,14 +560,14 @@ class detect_data_sent_driver:
         self.img1 = sent_data_driver_motor["img1"]
         self.stop_rmse = sent_data_driver_motor["stop"]
 
-        # load_du_lieu scan vat can
-        self.check_an_toan = self.load_scan_vat_can(sent_data_driver_motor["scan"], 
-                                                    self.check_tien, self.check_trai, self.check_phai,
-                                                    sent_data_driver_motor["huong_agv"], 
-                                                    sent_data_driver_motor["tam_x_agv"], sent_data_driver_motor["tam_y_agv"], 
-                                                    sent_data_driver_motor["huong_x"], sent_data_driver_motor["huong_y"],
-                                                    sent_data_driver_motor["scaling_factor"], 
-                                                    sent_data_driver_motor["window_size_x_all"], sent_data_driver_motor["window_size_y_all"])
+        # # load_du_lieu scan vat can
+        # self.check_an_toan = self.load_scan_vat_can(sent_data_driver_motor["scan"], 
+        #                                             self.check_tien, self.check_trai, self.check_phai,
+        #                                             sent_data_driver_motor["huong_agv"], 
+        #                                             sent_data_driver_motor["tam_x_agv"], sent_data_driver_motor["tam_y_agv"], 
+        #                                             sent_data_driver_motor["huong_x"], sent_data_driver_motor["huong_y"],
+        #                                             sent_data_driver_motor["scaling_factor"], 
+        #                                             sent_data_driver_motor["window_size_x_all"], sent_data_driver_motor["window_size_y_all"])
         if self.check_an_toan == "stop":
             self.stop_vat_can = 1
         else:
@@ -518,9 +587,12 @@ class detect_data_sent_driver:
     
     
     
-    
+    def stop_data_sent_drive(self):
+        self.driver_motor.load_data_sent_drive(self.v_tien_max_new, self.v_re_max_new, self.point_start_LQR, self.point_end_LQR,
+                             self.goc_agv, self.angle, self.distance, self.check_angle_distance,
+                             1, self.di_cham, self.a_v, self.dang_re, self.tien_rl)
     def data_sent_drive(self):
-        self.driver_motor.load_data_sent_drive(self.v_tien_max, self.v_re_max, self.point_start_LQR, self.point_end_LQR,
+        self.driver_motor.load_data_sent_drive(self.v_tien_max_new, self.v_re_max_new, self.point_start_LQR, self.point_end_LQR,
                              self.goc_agv, self.angle, self.distance, self.check_angle_distance,
                              self.stop, self.di_cham, self.a_v, self.dang_re, self.tien_rl)
         # return v_tien_max,  v_re_max, point_start_LQR, point_end_LQR, \
@@ -545,8 +617,55 @@ class detect_data_sent_driver:
             if data_input == "lui":
                 self.driver_motor.sent_data_controller(vt_trai = -van_toc_max_tien, vt_phai = -van_toc_max_tien)
             if data_input == "dich_lui_trai":
-                self.driver_motor.sent_data_controller(vt_trai = -van_toc_max_tien, vt_phai = -(van_toc_max_tien/3))
+                self.driver_motor.sent_data_controller(vt_trai = -int((van_toc_max_tien/4)*3), vt_phai = -van_toc_max_tien)
             if data_input == "dich_lui_phai":
-                self.driver_motor.sent_data_controller(vt_trai = -int(van_toc_max_tien/3), vt_phai = -int(van_toc_max_tien))
+                self.driver_motor.sent_data_controller(vt_trai = -int(van_toc_max_tien), vt_phai = -int((van_toc_max_tien/4)*3))
     
+    def tim_diem_gan_nhat(self, current_position, danh_sach_diem):
+        """
+        Tìm điểm gần nhất trong danh_sach_diem so với một tọa độ cho trước.
 
+        Args:
+            current_position (list or tuple): Tọa độ hiện tại [x, y].
+            danh_sach_diem (dict): Dictionary chứa thông tin các điểm.
+                                    Ví dụ: {"P1": [100, 200, "không hướng", 0], ...}
+
+        Returns:
+            tuple: Một tuple chứa (tên điểm gần nhất, khoảng cách nhỏ nhất).
+                Trả về (None, float('inf')) nếu danh_sach_diem rỗng.
+        """
+        if not danh_sach_diem:
+            return None, float('inf')
+
+        nearest_point_name = None
+        min_distance = float('inf')
+        
+        current_x, current_y = current_position
+
+        for point_name, point_data in danh_sach_diem.items():
+            point_x, point_y = point_data[0], point_data[1]
+            
+            # Tính khoảng cách Euclidean
+            distance = math.sqrt((point_x - current_x)**2 + (point_y - current_y)**2)
+            
+            if distance < min_distance:
+                min_distance = distance
+                nearest_point_name = point_name
+                
+        return nearest_point_name, min_distance
+
+# if __name__ == '__main__':
+    # Ví dụ sử dụng hàm find_nearest_point
+    # danh_sach_diem_test = {
+    #     "P1": [100, 200, "không hướng", 0],
+    #     "P2": [550, 480, "không hướng", 0],
+    #     "P3": [120, 210, "có hướng", 90]
+    # }
+    # agv_position = [125, 215]
+
+    # ten_diem_gan_nhat, khoang_cach = find_nearest_point(agv_position, danh_sach_diem_test)
+
+    # print(f"Tọa độ AGV: {agv_position}")
+    # print(f"Điểm gần nhất là: {ten_diem_gan_nhat}")
+    # print(f"Khoảng cách tới điểm đó là: {khoang_cach}")
+    

@@ -19,8 +19,6 @@ from support_main.lib_main import edit_csv_tab
 path_phan_mem = path.path_phan_mem
 path_admin = path_phan_mem + "/setting/admin_window.csv"
 
-tien_max = 2000
-re_max = 500
 
 data_admin = edit_csv_tab.load_all_stt(path_admin)
 for i in range(0,len(data_admin)):
@@ -29,14 +27,6 @@ for i in range(0,len(data_admin)):
             window_size = int(float(data_admin[i][1]))
         if data_admin[i][0] == "window_size_all": # kich thuoc ảnh tổng
             window_size_all = int(float(data_admin[i][1]))
-        if data_admin[i][0] == "tien_max": 
-            tien_max = int(float(data_admin[i][1]))
-        if data_admin[i][0] == "re_max": 
-            re_max = int(float(data_admin[i][1]))
-        if data_admin[i][0] == "x_goc0": 
-            x_goc0 = int(float(data_admin[i][1]))
-        if data_admin[i][0] == "y_goc0": 
-            y_goc0 = int(float(data_admin[i][1]))
 
 # --- Configuration ---
 AGV_TITLE = "AGV 1"
@@ -71,7 +61,7 @@ y_goc_img2_origin_on_map_all = 0
 
 # --- Data Structures (as per new request) ---
 # Default settings
-dict_cai_dat = {"van_toc_tien_max": tien_max, "van_toc_re_max": re_max}
+dict_cai_dat = {"van_toc_tien_max": 5000, "van_toc_re_max": 500}
 # Map selection
 dict_chon_ban_do = {"ten_ban_do": "", "update": 0}
 # AGV position adjustment
@@ -85,7 +75,6 @@ file_grid_da_chon = ""
 danh_sach_diem = {}
 # Format: danh_sach_duong = {"tên đường": ["tên điểm 1", "tên điểm 2"]}
 danh_sach_duong = {}
-update_ds_diem_duong = 1
 
 # Lists for UI dropdowns
 list_tien_max = [7000, 6500, 6000, 5500, 5000, 4500, 4000, 3500, 3000, 2500, 2000, 1500, 1000, 500]
@@ -108,11 +97,12 @@ dict_data_grid = {}
 paint_dict_data_grid = True # New flag to control drawing grids
 
 # --- Signal Communication Variables ---
-tin_hieu_nhan = {'name_agv': 'agv1', 'dich_den': "P2", 'trang_thai': 'run'}
+tin_hieu_nhan = ""
 thoi_gian_nhan_str = "N/A"
-
-run_and_stop = 0 # "run" or "stop"
-open_loa = 0
+last_receive_status_str = "Chưa nhận tín hiệu nào."
+tin_hieu_gui = ""
+thoi_gian_gui_str = "N/A"
+last_send_status_str = "Chưa có tín hiệu để gửi."
 
 
 # points_color_red 
@@ -122,7 +112,7 @@ def log_communication(log_type, timestamp_str, signal_value):
     Ghi log giao tiếp vào file.
     log_type: "nhan" hoặc "gui"
     timestamp_str: Thời gian dạng string (YYYY-MM-DD HH:MM:SS)
-    signal_value: Giá trị tín hiệu (có thể là string hoặc dict/list)
+    signal_value: Giá trị tín hiệu
     """
     try:
         now = time.localtime()
@@ -130,14 +120,8 @@ def log_communication(log_type, timestamp_str, signal_value):
         filename = f"log_{log_type}_{date_hour_str}.txt"
         filepath = os.path.join(PATH_LOG_GIAO_TIEP_DIR, filename)
 
-        # Chuyển đổi signal_value thành chuỗi JSON nếu nó là dict hoặc list
-        if isinstance(signal_value, (dict, list)):
-            log_content = json.dumps(signal_value, ensure_ascii=False)
-        else:
-            log_content = str(signal_value)
-
         with open(filepath, "a", encoding="utf-8") as f:
-            f.write(f"{timestamp_str}\t{log_content}\n")
+            f.write(f"{timestamp_str}\t{signal_value}\n")
     except Exception as e:
         print(f"Error writing to log file: {e}")
 
@@ -268,23 +252,6 @@ def main_web():
             .button-row {{ display: flex; justify-content: space-between; gap: 10px; }}
             .button-row button {{ width: 100%; }} /* Let flex handle distribution */
             /* Modal styles */
-            .sidebar button.btn-run-state {{
-                background-color: #e74c3c; /* Red */
-                color: white;
-                border-color: #2980b9;
-            }}
-            .sidebar button.btn-run-state:hover {{
-                background-color: #217dbb;
-            }}
-            .sidebar button.btn-stop-state {{
-                
-                background-color: #3498db; /* Blue */
-                color: white;
-                border-color: #c0392b;
-            }}
-            .sidebar button.btn-stop-state:hover {{
-                background-color: #d64535;
-            }}
             body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f0f0; display: flex; flex-direction: column; height: 100vh; }}
             .header {{ background-color: #333; color: white; padding: 10px 20px; text-align: center; }}
             .header h3 {{ margin: 0; }}
@@ -305,16 +272,23 @@ def main_web():
         <div class="main-container">
             <div id="openseadragon-viewer"></div>
             <div class="sidebar">
-                <!-- Trạng thái hoạt động Panel -->
-                <div class="function-frame" id="frame-operation-status">
-                    <h4>Trạng thái hoạt động</h4>
-                    <button id="runStopBtn" onclick="toggleRunStop()">Run</button>
+                <!-- Tín hiệu nhận được Panel -->
+                <div class="function-frame" id="frame-signal-received">
+                    <h4>Tín hiệu nhận được</h4>
+                    <p>Thời gian nhận: <span id="timeReceivedDisplay">N/A</span></p>
+                    <p>Giá trị nhận: <span id="valueReceivedDisplay">N/A</span></p>
+                    <p>Trạng thái: <span id="statusReceivedDisplay">Chưa nhận tín hiệu.</span></p>
                 </div>
 
-                <!-- Loa Panel -->
-                <div class="function-frame" id="frame-speaker-control">
-                    <h4>Điều khiển Loa</h4>
-                    <button id="speakerBtn" onclick="toggleSpeaker()">Loa</button>
+                <!-- Tín hiệu truyền đi Panel -->
+                <div class="function-frame" id="frame-signal-to-send">
+                    <h4>Tín hiệu truyền đi</h4>
+                    <label for="inputSignalToSend">Nhập tín hiệu để gửi:</label>
+                    <input type="text" id="inputSignalToSend" placeholder="VD: START_PROCESS_A">
+                    <button onclick="updateSignalToSend()">Cập nhật & Gửi Yêu Cầu</button>
+                    <p>Thời gian cập nhật gửi: <span id="timeSentDisplay">N/A</span></p>
+                    <p>Giá trị sẽ gửi: <span id="valueSentDisplay">N/A</span></p>
+                    <p>Trạng thái: <span id="statusSentDisplay">Chưa có tín hiệu để gửi.</span></p>
                 </div>
 
                 <!-- Cài đặt Panel -->
@@ -388,6 +362,24 @@ def main_web():
                     </select>
                     <button onclick="loadPathList()">Tải danh sách đường</button>
                 </div>
+
+                <!-- Quản lý Grid -->
+                <div class="function-frame" id="frame-grid-management">
+                    <h4>Quản lý Grid</h4>
+                    <div id="grid-list-container" style="max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; margin-bottom: 10px;">
+                        <!-- Grid items will be populated here by JS -->
+                    </div>
+                    <button onclick="openGridModal(null)">Thêm Grid</button>
+
+                    <button onclick="saveGridList()">Lưu Grid</button>
+
+                    <label for="selectSavedGridList">Tải DS grid từ file:</label>
+                    <select id="selectSavedGridList">
+                        { "".join([f'<option value="{val}" {"selected" if val == file_grid_da_chon else ""}>{val}</option>' for val in list_danh_sach_grid_da_luu]) }
+                    </select>
+                    <button onclick="loadGridList()">Tải danh sách Grid</button>
+                </div>
+
             </div>
         </div>
 
@@ -464,7 +456,7 @@ def main_web():
             let clientPathsData = {{}};  // {{ "P1_P2": {{name: "P1_P2", p1_name: "P1", p2_name: "P2", osdOverlay: obj, textOverlay: obj}}, ... }}
             let clientGridData = {{}}; // {{ "grid_00": {{name: "00", vi_tri: [x1,y1,x2,y2], diem: [x,y], ...}}, ...}}
             
-            let nextPointNumericId = 0; // For generating default point names like P1, P2
+            let nextPointNumericId = 1; // For generating default point names like P1, P2
 
             // UI Interaction Modes
             let currentMode = 'none'; // 'agvPos', 'addPoint', 'editPoint', 'addPath_start', 'addPath_end', 'deletePath'
@@ -480,8 +472,6 @@ def main_web():
             let osdAgvBodyPointOverlays = []; // Store OSD overlay elements for AGV body points
             let osdAgvArrowPointOverlays = [];// Store OSD overlay elements for AGV arrow points
 
-            
-            
             document.addEventListener('DOMContentLoaded', function () {{
                 viewer = OpenSeadragon({{
                     id: "openseadragon-viewer",
@@ -489,6 +479,7 @@ def main_web():
                     tileSources: {{
                         type: 'image',
                         url:  '/full_image.jpg?' + new Date().getTime(),
+                        buildPyramid: false
                     }},
                     animationTime: 0.1, // Faster animation
                     blendTime: 0,       // No blend
@@ -499,6 +490,8 @@ def main_web():
                     zoomPerScroll: 1.2,
                     showNavigator: true,
                     navigatorPosition: "TOP_RIGHT",
+                    // Disable default click action if it interferes
+                    // clickHandler: null, // Có thể cần nếu click mặc định của OSD gây vấn đề
                 }});
 
                 // --- Lưu trạng thái Viewer trước khi refresh/đóng trang ---
@@ -519,30 +512,31 @@ def main_web():
                         sessionStorage.setItem('selectedPointListFile', document.getElementById('selectSavedPointList').value);
                         sessionStorage.setItem('selectedPathListFile', document.getElementById('selectSavedPathList').value);
                         sessionStorage.setItem('selectedGridListFile', document.getElementById('selectSavedGridList').value);
+                        console.log("Saving viewer state:", viewerState);
+                        console.log("Saving clientPointsData count:", Object.keys(clientPointsData).length);
+                        console.log("Saving clientPathsData count:", Object.keys(clientPathsData).length);
+                        console.log("Saving clientGridData count:", Object.keys(clientGridData).length);
+                        console.log("Saving nextPointNumericId:", nextPointNumericId);
+                        console.log("Saving selectedPointListFile:", document.getElementById('selectSavedPointList').value);
+                        console.log("Saving selectedPathListFile:", document.getElementById('selectSavedPathList').value);
+                        console.log("Saving viewer state:", viewerState);
+                        console.log("Saving selectedGridListFile:", document.getElementById('selectSavedGridList').value);
                     }}
                 }});
 
                 // --- Khôi phục trạng thái Viewer sau khi tải ảnh ---
                 viewer.addHandler('open', function() {{
                     const savedState = sessionStorage.getItem('osdViewerState');
-                    // Initial fetch and polling for Run/Stop status
-                    //  fetchRunStopStatus();
-                    setInterval(fetchRunStopStatus, 2000); // Poll every 2 seconds
-
                     if (savedState) {{
                         const viewerState = JSON.parse(savedState);
                         console.log("Restoring viewer state:", viewerState);
                         viewer.viewport.panTo(new OpenSeadragon.Point(viewerState.center.x, viewerState.center.y), true); // true for immediately
                         viewer.viewport.zoomTo(viewerState.zoom, true); // true for immediately
-                        sessionStorage.removeItem('osdViewerState'); // Xóa trạng thái đã lưu sau khi dùng
+                        // sessionStorage.removeItem('osdViewerState'); // Xóa trạng thái đã lưu sau khi dùng
                     }}
 
                     // Start polling for AGV state and special points AFTER viewer is open
-                    loadCurrentState();
-                    if (!viewer || !viewer.isOpen() || viewer.world.getItemCount() === 0) {{
-                        return;
-                    }}
-                    setInterval(fetchAGVState, 1000); // Lấy trạng thái AGV mỗi 200ms
+                    setInterval(fetchAGVState, 10); // Lấy trạng thái AGV mỗi 200ms
                     
                     console.log("OSD viewer is open. Started AGV state polling.");
 
@@ -554,6 +548,14 @@ def main_web():
                             console.log("[OSD 'open'] Image dimensions from OSD:", JSON.stringify(imageDimensions));
                         }} else {{ console.warn("[OSD 'open'] Image item or source or dimensions not available."); }}
                     }}
+                    // Sau khi OSD mở và có thể đã zoom/pan, bạn vẽ lại các overlay
+                    Object.values(clientPointsData).forEach(p => drawPointOnOSD(p));
+                    Object.values(clientPathsData).forEach(path => {{
+                        if (clientPointsData[path.p1_name] && clientPointsData[path.p2_name]) {{
+                            drawPathOnOSD(path);
+                        }}
+                    }});
+                    // fetchAGVState(); // Có thể gọi một lần ngay sau khi open để không phải chờ 200ms đầu tiên
                 }});
                 
                 viewer.addHandler('canvas-click', function(event) {{
@@ -610,7 +612,7 @@ def main_web():
                         if (startPoint) {{
                             tempPathStartPointName = startPoint.name;
                             currentMode = 'addPath_end';
-                            // alert(`Đã chọn điểm bắt đầu: ${"{startPoint.name}"}. Chọn điểm kết thúc.`);
+                            alert(`Đã chọn điểm bắt đầu: ${"{startPoint.name}"}. Chọn điểm kết thúc.`);
                             highlightPoint(startPoint.name, true);
                         }} else {{
                             alert('Vui lòng click gần một điểm đã tạo để bắt đầu đường đi.');
@@ -622,8 +624,7 @@ def main_web():
                             highlightPoint(tempPathStartPointName, false); // Unhighlight
                             tempPathStartPointName = null;
                             currentMode = 'addPath_start'; // Ready for next path's start point
-                            // alert("Đã thêm đường. Sẵn sàng thêm đường mới hoặc đổi chế độ.");
-                            // updateSpecialPoints
+                            alert("Đã thêm đường. Sẵn sàng thêm đường mới hoặc đổi chế độ.");
                         }} else if (endPoint && endPoint.name === tempPathStartPointName) {{
                             alert('Điểm kết thúc không được trùng với điểm bắt đầu.');
                         }} else {{
@@ -662,13 +663,13 @@ def main_web():
                             // Overlays sẽ được tạo lại bởi drawPointOnOSD
                             p.osdOverlay = null; 
                             p.textOverlay = null;
-                            // drawPointOnOSD(p);
+                            drawPointOnOSD(p);
                         }});
                         console.log("Restored clientPointsData from sessionStorage. Count:", Object.keys(clientPointsData).length);
                     }} catch (e) {{
                         console.error("Error parsing clientPointsData from sessionStorage:", e);
                         clientPointsData = {{}}; // Reset nếu có lỗi
-                        loadCurrentState(); // Tải lại từ server nếu parse lỗi clientPathsData
+                        loadCurrentState(); // Tải lại từ server nếu parse lỗi
                     }}
 
                     if (savedPathsJSON) {{
@@ -677,9 +678,9 @@ def main_web():
                             Object.values(clientPathsData).forEach(path => {{
                                 path.osdOverlay = null;
                                 path.textOverlay = null;
-                                // if (clientPointsData[path.p1_name] && clientPointsData[path.p2_name]) {{
-                                //     drawPathOnOSD(path);
-                                // }}
+                                if (clientPointsData[path.p1_name] && clientPointsData[path.p2_name]) {{
+                                    drawPathOnOSD(path);
+                                }}
                             }});
                             console.log("Restored clientPathsData from sessionStorage. Count:", Object.keys(clientPathsData).length);
                         }} catch (e) {{
@@ -711,129 +712,9 @@ def main_web():
                 // Load initial lists for dropdowns
                 updateSavedFileLists(savedSelectedPointList, savedSelectedPathList, savedSelectedGridList); 
                 // Start polling for signal status
+                setInterval(fetchSignalStatus, 2000); // Poll every 2 seconds
             }});
-            
-            function toggleRunStop() {{
-                fetch('/api/toggle_run_stop', {{ method: 'POST' }})
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            updateRunStopButton(data.currentState);
-                        }}
-                    }})
-                    .catch(error => console.error('Error toggling run/stop state:', error));
-            }}
 
-            function updateNextPointId() {{
-                let maxId = 0;
-                // Lặp qua tất cả các điểm đã biết để tìm ID số lớn nhất
-                for (const name in clientPointsData) {{
-                    if (name.startsWith('P')) {{
-                        // Lấy phần số từ tên điểm (ví dụ: 'P12' -> 12)
-                        const num = parseInt(name.substring(1), 10);
-                        // Kiểm tra xem có phải là số hợp lệ và có lớn hơn maxId hiện tại không
-                        if (!isNaN(num) && num > maxId) {{
-                            maxId = num;
-                        }}
-                    }}
-                }}
-                // ID tiếp theo sẽ lớn hơn ID lớn nhất đã tìm thấy 1 đơn vị
-                nextPointNumericId = maxId + 1;
-                console.log(`[updateNextPointId] ID điểm tiếp theo được cập nhật thành: ${{nextPointNumericId}}`);
-            }}
-
-            function updatePointsPath(newPoints, newPaths) {{
-                //1. Xóa các overlay cũ khỏi viewer
-                for (const name in clientPointsData) {{
-                    removePointOverlay(name);
-                }}
-                for (const name in clientPathsData) {{
-                    removePathOverlay(name);
-                }}
-
-                // 2. Reset lại dữ liệu phía client
-                clientPointsData = {{}};
-                clientPathsData = {{}};
-
-                // 3. Nạp dữ liệu điểm mới và vẽ chúng
-                for (const name in newPoints) {{
-                    const p = newPoints[name];
-                    clientPointsData[name] = {{
-                        name: name,
-                        x: p[0],
-                        y: p[1],
-                        type: p[2],
-                        angle: p[3],
-                        osdOverlay: null,
-                        textOverlay: null
-                    }};
-                    drawPointOnOSD(clientPointsData[name]);
-                    drawPointLabel(clientPointsData[name]);
-                }}
-
-                // 4. Nạp dữ liệu đường đi mới và vẽ chúng
-                for (const name in newPaths) {{
-                    const p = newPaths[name];
-                    // Đảm bảo các điểm của đường đi này tồn tại trước khi vẽ
-                    if (clientPointsData[p[0]] && clientPointsData[p[1]]) {{
-                        clientPathsData[name] = {{
-                            name: name,
-                            p1_name: p[0],
-                            p2_name: p[1],
-                            osdOverlay: null,
-                            textOverlay: null
-                        }};
-                        drawPathOnOSD(clientPathsData[name]);
-                        drawPathLabel(clientPathsData[name]);
-                    }}
-                }}
-            }}
-
-            function updateRunStopButton(state) {{
-                const btn = document.getElementById('runStopBtn');
-                if (!btn) return;
-                if (state === 'run') {{
-                    btn.textContent = 'Stop';
-                    btn.className = 'btn-run-state';
-                }} else {{
-                    btn.textContent = 'Run';
-                    btn.className = 'btn-stop-state';
-                }}
-            }}
-
-            function statusRunStopButton(state) {{
-                const btn = document.getElementById('runStopBtn');
-                if (!btn) return;
-                if (state === '1') {{
-                    btn.textContent = 'Stop';
-                    btn.className = 'btn-run-state';
-                }} else {{
-                    btn.textContent = 'Run';
-                    btn.className = 'btn-stop-state';
-                }}
-            }}
-
-            function fetchRunStopStatus() {{
-                const btn = document.getElementById('runStopBtn');
-                fetch('/api/get_run_stop_status')
-                    .then(response => response.json())
-                    .then(data => {{
-                        statusRunStopButton(data.status);
-                    }})
-                    .catch(error => console.error('Error fetching run/stop status:', error));
-            }}
-            
-            //function reopenViewerPreserveState() {{
-            //    if (viewer && viewer.isOpen()) {{
-            //        const center = viewer.viewport.getCenter();
-            //        const zoom = viewer.viewport.getZoom();
-            //        sessionStorage.setItem('osdViewerState', JSON.stringify({{ center, zoom }}));
-            //   }}
-            //    viewer.open({{
-            //        type: 'image',
-            //        url: '/full_image.jpg?' + new Date().getTime()
-            //    }});
-            //}}
             function updateSetting(key, value) {{
                 clientDictCaiDat[key] = parseFloat(value); // Assuming speeds are numbers
                 fetch('/update_setting', {{
@@ -845,210 +726,145 @@ def main_web():
                 .then(data => console.log("Setting update response:", data))
                 .catch(error => console.error('Error updating setting:', error));
             }}
+            function updateSignalToSend() {{
+                const signalValue = document.getElementById('inputSignalToSend').value;
+                fetch('/api/update_signal_to_send_1', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ signal: signalValue }})
+                }})
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.status === 'success') {{
+                        console.log("Signal to send updated:", data.message);
+                        // Update UI immediately for responsiveness, then rely on polling for sync
+                        document.getElementById('valueSentDisplay').textContent = signalValue;
+                        document.getElementById('timeSentDisplay').textContent = new Date().toLocaleTimeString(); // Approximate time
+                        document.getElementById('statusSentDisplay').textContent = data.message;
+                        fetchSignalStatus(); // Fetch latest status right away
+                    }} else {{
+                        alert("Lỗi cập nhật tín hiệu gửi: " + data.message);
+                    }}
+                }})
+                .catch(error => console.error('Error updating signal to send:', error));
+            }}
+
+            function fetchSignalStatus() {{
+                fetch('/api/get_signal_status_1')
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.status === 'success') {{
+                        document.getElementById('timeReceivedDisplay').textContent = data.received_time_str;
+                        document.getElementById('valueReceivedDisplay').textContent = data.received_signal;
+                        document.getElementById('statusReceivedDisplay').textContent = data.receive_status_str;
+
+                        document.getElementById('timeSentDisplay').textContent = data.to_send_time_str;
+                        document.getElementById('valueSentDisplay').textContent = data.to_send_signal;
+                        document.getElementById('statusSentDisplay').textContent = data.send_status_str;
+                    }}
+                }}).catch(error => console.error('Error fetching signal status:', error));
+            }}
 
             function fetchAGVState() {{
                 fetch('/get_agv_state') // Endpoint để lấy vị trí hiện tại của AGV
                     .then(response => response.json())
                     .then(data => {{
                         
-                        //if (data.points_blue) {{
-                        //    updateSpecialPoints(data.points_blue, 'blue', bluePointOverlays);
-                        //}}
-                        //if (data.points_red) {{
-                        //    updateSpecialPoints(data.points_red, 'red', redPointOverlays);
-                        //}}
+                        if (data.points_blue) {{
+                            updateSpecialPoints(data.points_blue, 'blue', bluePointOverlays);
+                        }}
+                        if (data.points_red) {{
+                            updateSpecialPoints(data.points_red, 'red', redPointOverlays);
+                        }}
                         if (data.agv_body_coords && data.agv_arrow_coords) {{ // Use new keys
                             updateAGVOnMap(data.agv_body_coords, data.agv_arrow_coords);
                         }}
-                        if (data.update_points_paths === 1) {{
-                            console.log("Reloading points and paths...", data.paths);
-                            clearAllClientDataAndOverlays();
-
-                            for (const name in data.points) {{
-                                const p = data.points[name];
-                                clientPointsData[name] = {{
-                                    name: name,
-                                    x: p[0],
-                                    y: p[1],
-                                    type: p[2],
-                                    angle: p[3],
-                                    osdOverlay: null,
-                                    textOverlay: null
-                                }};
-                                drawPointOnOSD(clientPointsData[name]);
-                                drawPointLabel(clientPointsData[name]);
-                            }}
-
-                            for (const pname in data.paths) {{
-                                const p = data.paths[pname];
-                                clientPathsData[pname] = {{
-                                    name: pname,
-                                    p1_name: p[0],
-                                    p2_name: p[1],
-                                    osdOverlay: null,
-                                    textOverlay: null
-                                }};
-                                drawPathOnOSD(clientPathsData[pname]);
-                                drawPathLabel(clientPathsData[pname]);
-                            }}
-                        }}
-                        // 5. Tính toán lại ID điểm tiếp theo dựa trên dữ liệu mới
-                        updateNextPointId();
+                        
                     }})
                     .catch(error => console.error('Error fetching AGV state:', error));
             }}
 
-            function drawPointLabel(point) {{
-                if (!viewer || !viewer.isOpen() || viewer.world.getItemCount() === 0) {{
-                    return;
-                }}
-                const imageItem = viewer.world.getItemAt(0);
-                if (!imageItem || !imageItem.source || !imageItem.source.dimensions) return;
-
-                const imageWidth = imageItem.source.dimensions.x;
-                const imageHeight = imageItem.source.dimensions.y;
-
-                const xForOSD = point.x / imageWidth;
-                const yForOSD = point.y / imageHeight;
-
-                const label = document.createElement("div");
-                label.textContent = point.name;
-                label.style.color = "yellow";
-                label.style.fontSize = "10px";
-                label.style.fontWeight = "bold";
-                label.style.backgroundColor = "rgba(0,0,0,0.5)";
-                label.style.padding = "1px 2px";
-                label.style.borderRadius = "3px";
-                label.style.transform = "translate(-50%, -150%)"; // lệch lên trên điểm
-
-                viewer.addOverlay({{
-                    element: label,
-                    location: new OpenSeadragon.Point(xForOSD, yForOSD),
-                    placement: OpenSeadragon.Placement.CENTER
-                }});
-
-                point.textOverlay = label;
-            }}
-
-            function drawPathLabel(path) {{
-                if (!viewer || !viewer.isOpen() || viewer.world.getItemCount() === 0) {{
-                    return;
-                }}
-                const imageItem = viewer.world.getItemAt(0);
-                if (!imageItem || !imageItem.source || !imageItem.source.dimensions) return;
-
-                const imageWidth = imageItem.source.dimensions.x;
-                const imageHeight = imageItem.source.dimensions.y;
-
-                const p1 = clientPointsData[path.p1_name];
-                const p2 = clientPointsData[path.p2_name];
-                if (!p1 || !p2) return;
-
-                const midX = (p1.x + p2.x) / 2;
-                const midY = (p1.y + p2.y) / 2;
-
-                const label = document.createElement("div");
-                label.textContent = path.name;
-                label.style.color = "lime";
-                label.style.fontSize = "10px";
-                label.style.fontWeight = "bold";
-                label.style.backgroundColor = "rgba(0,0,0,0.5)";
-                label.style.padding = "1px 2px";
-                label.style.borderRadius = "3px";
-                label.style.transform = "translate(-50%, -50%)";
-
-                viewer.addOverlay({{
-                    element: label,
-                    location: new OpenSeadragon.Point(midX / imageWidth, midY / imageHeight),
-                    placement: OpenSeadragon.Placement.CENTER
-                }});
-
-                path.textOverlay = label;
-            }}
-
-
-
-            function drawPointOnOSD(point) {{
-                if (!viewer || !viewer.isOpen() || viewer.world.getItemCount() === 0) {{
-                    console.warn("Viewer not ready for drawing point:", point.name);
+            // --- Chức năng Danh sách Grid ---
+            async function saveGridList() {{
+                const gridName = prompt("Nhập tên cho danh sách Grid:");
+                if (!gridName) {{
+                    alert("Tên danh sách Grid không được để trống.");
                     return;
                 }}
 
-                const imageItem = viewer.world.getItemAt(0);
-                let imageWidth = 0, imageHeight = 0;
+                // Giả sử 'clientGridData' chứa dữ liệu lưới bạn muốn lưu
+                // Đảm bảo 'clientGridData' là một biến có thể truy cập toàn cục hoặc được truyền đúng cách
+                const gridDataToSave = clientGridData; // Hoặc bất kỳ biến nào chứa dữ liệu lưới của bạn
 
-                if (imageItem && imageItem.source && imageItem.source.dimensions) {{
-                    imageWidth = imageItem.source.dimensions.x;
-                    imageHeight = imageItem.source.dimensions.y;
+                try {{
+                    const response = await fetch('/save_grid_list', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json',
+                        }},
+                        body: JSON.stringify({{ gridName: gridName, gridData: gridDataToSave }}),
+                    }});
+                    const result = await response.json();
+                    if (result.status === 'success') {{
+                        alert(result.message);
+                        // Tùy chọn: làm mới danh sách chọn sau khi lưu
+                        updateGridListDropdown(); 
+                    }} else {{
+                        alert("Lỗi khi lưu danh sách Grid: " + result.message);
+                    }}
+                }} catch (error) {{
+                    console.error('Lỗi khi lưu danh sách grid:', error);
+                    alert('Lỗi kết nối hoặc hệ thống khi lưu danh sách Grid.');
                 }}
-
-                if (imageWidth === 0 || imageHeight === 0) return;
-
-                const xForOSD = point.x / imageWidth;
-                const yForOSD = point.y / imageHeight;
-
-                const pointElement = document.createElement("div");
-                pointElement.style.width = "6px";
-                pointElement.style.height = "6px";
-                pointElement.style.backgroundColor = "yellow";
-                pointElement.style.border = "1px solid black";
-                pointElement.style.borderRadius = "50%";
-                pointElement.style.transform = "translate(-50%, -50%)";
-
-                viewer.addOverlay({{
-                    element: pointElement,
-                    location: new OpenSeadragon.Point(xForOSD, yForOSD),
-                    placement: OpenSeadragon.Placement.CENTER,
-                    checkResize: false
-                }});
-
-                // Lưu lại overlay element để xóa khi cần openPointModal
-                point.osdOverlay = pointElement;
             }}
 
-            function drawPathOnOSD(path) {{
-                if (!viewer || !viewer.isOpen() || viewer.world.getItemCount() === 0) return;
+            async function loadGridList() {{
+                const selectElement = document.getElementById('selectSavedGridList');
+                const gridName = selectElement.value;
 
-                const imageItem = viewer.world.getItemAt(0);
-                let imageWidth = 0, imageHeight = 0;
-                if (imageItem && imageItem.source && imageItem.source.dimensions) {{
-                    imageWidth = imageItem.source.dimensions.x;
-                    imageHeight = imageItem.source.dimensions.y;
+                if (!gridName) {{
+                    alert("Vui lòng chọn một danh sách Grid để tải.");
+                    return;
                 }}
 
-                if (imageWidth === 0 || imageHeight === 0) return;
-
-                const p1 = clientPointsData[path.p1_name];
-                const p2 = clientPointsData[path.p2_name];
-                if (!p1 || !p2) return;
-
-                const x1 = p1.x / imageWidth;
-                const y1 = p1.y / imageHeight;
-                const x2 = p2.x / imageWidth;
-                const y2 = p2.y / imageHeight;
-
-                // Tạo SVG line
-                const svgNS = "http://www.w3.org/2000/svg";
-                const svg = document.createElementNS(svgNS, "svg");
-                const line = document.createElementNS(svgNS, "line");
-                line.setAttribute("x1", x1 * 100 + "%");
-                line.setAttribute("y1", y1 * 100 + "%");
-                line.setAttribute("x2", x2 * 100 + "%");
-                line.setAttribute("y2", y2 * 100 + "%");
-                line.setAttribute("stroke", "green");
-                line.setAttribute("stroke-width", "2");
-                svg.appendChild(line);
-
-                viewer.addOverlay({{
-                    element: svg,
-                    location: new OpenSeadragon.Rect(0, 0, 1, 1), // toàn ảnh
-                    placement: OpenSeadragon.Placement.TOP_LEFT,
-                    checkResize: false
+                const response = await fetch('/load_grid_list', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                    }},
+                    body: JSON.stringify({{ gridName: gridName }}),
                 }});
-
-                path.osdOverlay = svg;
+                const result = await response.json();
+                if (result.status === 'success') {{
+                    // Giả sử 'clientGridData' là biến toàn cục để cập nhật
+                    clientGridData = result.gridData; 
+                    alert(`Danh sách Grid '${{gridName}}' đã được tải thành công.`);
+                    
+                    window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
+                }} else {{
+                    alert("Lỗi khi tải danh sách Grid: " + result.message);
+                }}
             }}
 
+            // Hàm để cập nhật dropdown với danh sách grid đã lưu
+            async function updateGridListDropdown() {{
+                try {{
+                    const response = await fetch('/get_grid_lists'); // Gọi route Flask mới
+                    const result = await response.json();
+                    if (result.status === 'success') {{
+                        const selectElement = document.getElementById('selectSavedGridList');
+                        selectElement.innerHTML = '<option value="">-- Chọn --</option>'; // Xóa các tùy chọn hiện có
+                        result.gridLists.forEach(gridName => {{
+                            const option = document.createElement('option');
+                            option.value = gridName;
+                            option.textContent = gridName;
+                            selectElement.appendChild(option);
+                        }});
+                    }}
+                }} catch (error) {{
+                    console.error('Lỗi khi lấy danh sách grid cho dropdown:', error);
+                }}
+            }}
 
             // Gọi hàm này khi trang được tải để điền vào dropdown
             document.addEventListener('DOMContentLoaded', updateGridListDropdown);
@@ -1245,6 +1061,7 @@ def main_web():
                             
                             clientGridData = data.grid_data || {{}};
                             populateGridList();
+                            clearAllClientDataAndOverlays(); // Clear existing before loading
                             const serverPoints = data.points_data || {{}};
                             const serverPaths = data.paths_data || {{}};
 
@@ -1252,6 +1069,7 @@ def main_web():
                             for (const name in serverPoints) {{
                                 const pArray = serverPoints[name];
                                 clientPointsData[name] = {{ name: name, x: pArray[0], y: pArray[1], type: pArray[2], angle: pArray[3], osdOverlay: null, textOverlay: null }};
+                                // drawPointOnOSD(clientPointsData[name]);
                                 }}
                             console.log("clientPathsData for :", clientPathsData);
                             // Then load paths (which depend on points)
@@ -1259,11 +1077,10 @@ def main_web():
                                 const pArray = serverPaths[name];
                                 if(clientPointsData[pArray[0]] && clientPointsData[pArray[1]]) {{ 
                                     clientPathsData[name] = {{ name: name, p1_name: pArray[0], p2_name: pArray[1], osdOverlay: null, textOverlay: null }}; 
+                                // drawPathOnOSD(clientPathsData[name]); 
                                 }}
                             }}
                             console.log("clientPathsData for :", clientPathsData);
-                            updateNextPointId();
-                            
                         }}
                     }});
             }}
@@ -1302,41 +1119,6 @@ def main_web():
                 clientPathsData = {{}};
                 nextPointNumericId = 1; // Reset ID counter
             }}
-            function updatePointsPath(Points, Paths) {{
-                clientPointsData = Points;
-                clientPathsData = Paths;
-                
-                drawPointOnOSD(clientPointsData[name]);
-                drawPathOnOSD(clientPathsData[name]);
-            }}
-
-            function removePointOverlay(name) {{
-                const point = clientPointsData[name];
-                if (point) {{
-                    if (point.osdOverlay) {{
-                        viewer.removeOverlay(point.osdOverlay);
-                        point.osdOverlay = null;
-                    }}
-                    if (point.textOverlay) {{
-                        viewer.removeOverlay(point.textOverlay);
-                        point.textOverlay = null;
-                    }}
-                }}
-            }}
-
-            function removePathOverlay(name) {{
-                const path = clientPathsData[name];
-                if (path) {{
-                    if (path.osdOverlay) {{
-                        viewer.removeOverlay(path.osdOverlay);
-                        path.osdOverlay = null;
-                    }}
-                    if (path.textOverlay) {{
-                        viewer.removeOverlay(path.textOverlay);
-                        path.textOverlay = null;
-                    }}
-                }}
-            }}
 
             function confirmAGVUpdate() {{
                 const agvData = {{
@@ -1354,9 +1136,6 @@ def main_web():
                 .then(response => response.json())
                 .then(data => {{
                     console.log("AGV confirm update response:", data);
-                    // Reset button state on error as well
-                    document.getElementById('btnToggleAGVPositionMode')?.classList.remove('active');
-                    currentMode = 'none';
                     if(data.status === 'success') {{
                         alert("Vị trí AGV đã được gửi cập nhật lên server.");
                     }} else {{
@@ -1368,34 +1147,6 @@ def main_web():
              
             function toggleMode(mode) {{
                 // If trying to enter 'addPath' but it's already in a sub-mode, treat as exiting 'addPath'
-                // Khi nhấn nút "Đặt vị trí AGV", gửi trạng thái setup lên server
-                if (mode === 'agvPos') {{
-                    // Logic toggle đã chạy ở trên, vì vậy `currentMode` đã phản ánh trạng thái MỚI.
-                    // Nếu `currentMode` bây giờ là 'agvPos', có nghĩa là chế độ vừa được BẬT.
-                    const isNowActive = (currentMode === 'agvPos');
-                    const agvData = {{
-                        toa_do_x: parseFloat(document.getElementById('inputAgvX').value) || 0,
-                        toa_do_y: parseFloat(document.getElementById('inputAgvY').value) || 0,
-                        goc_agv: parseFloat(document.getElementById('inputAgvAngle').value) || 0,
-                        setup: isNowActive ? 0 : 1, // Gửi 1 nếu BẬT, 0 nếu TẮT
-                        update: 0 // Không phải là hành động xác nhận cuối cùng
-                    }};
-
-                    fetch('/confirm_agv_update', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify(agvData)
-                    }})
-                    .then(response => response.json())
-                    .then(data => {{
-                        console.log(`AGV setup mode ${{isEnteringSetupMode ? 'bật' : 'tắt'}}. Phản hồi:`, data);
-                        if (data.status !== 'success') {{
-                            alert(`Lỗi khi ${{isEnteringSetupMode ? 'bật' : 'tắt'}} chế độ đặt vị trí: ` + data.message);
-                        }}
-                    }})
-                    .catch(error => console.error('Error toggling AGV setup mode:', error));
-                }}
-
                 if (mode === 'addPath' && (currentMode === 'addPath_start' || currentMode === 'addPath_end')) {{
                     currentMode = 'none';
                 }} else if (currentMode === mode) {{
@@ -1412,6 +1163,17 @@ def main_web():
                 if (currentMode === 'addPath') currentMode = 'addPath_start'; // Default to start of addPath
 
                 updateModeButtons();
+                // Thay vì vô hiệu hóa hoàn toàn điều hướng chuột,
+                // chúng ta sẽ kiểm soát hành vi dựa trên currentMode trong 'canvas-click'.
+                // Nếu bạn vẫn muốn vô hiệu hóa pan/zoom khi ở một chế độ, bạn có thể giữ dòng dưới,
+                // nhưng hãy đảm bảo nó không chặn 'canvas-click'.
+                // viewer.setMouseNavEnabled(currentMode === 'none');
+
+                // if (currentMode === 'addPath_start') alert("Chế độ Thêm Đường: Click chọn điểm bắt đầu.");
+                // else if (currentMode === 'addPoint') alert("Chế độ Thêm Điểm: Click lên bản đồ để chọn vị trí.");
+                // else if (currentMode === 'editPoint') alert("Chế độ Sửa Điểm: Click lên điểm muốn sửa.");
+                // else if (currentMode === 'deletePath') alert("Chế độ Xóa Đường: Click gần đường muốn xóa.");
+                // else if (currentMode === 'agvPos') alert("Chế độ Đặt Vị Trí AGV: Click lên bản đồ để chọn tọa độ X, Y.");
 
             }}
             
@@ -1430,16 +1192,6 @@ def main_web():
             // --- Point Modal Functions ---
             function openPointModal(pointData, clickX, clickY, isEditing = false) {{
                 const modal = document.getElementById('pointModal');
-
-                document.getElementById('modalOriginalPointName').value = pointData ? pointData.name : '';
-
-                if (isEditing && pointData) {{
-                    document.getElementById('modalPointName').value = pointData.name;
-                }} else {{
-                    document.getElementById('modalPointName').value = `P${{nextPointNumericId}}`;
-                    // nextPointNumericId++;  // tăng ngay khi mở modal
-                }}
-
                 document.getElementById('modalOriginalPointName').value = pointData ? pointData.name : '';
                 document.getElementById('modalPointName').value = pointData ? pointData.name : `P${"{nextPointNumericId}"}`;
                 document.getElementById('modalPointX').value = pointData ? pointData.x : clickX;
@@ -1510,40 +1262,43 @@ def main_web():
                 .then(response => response.json())
                 .then(data => {{
                     if (data.status === 'success') {{
-                        // Đóng modal sau khi gửi yêu cầu thành công.
-                        // Tiến trình nền (fetchAGVState -> updatePointsPath) sẽ tự động
-                        // lấy dữ liệu mới nhất từ server và vẽ lại toàn bộ điểm/đường đi một cách chính xác.
-                        // Việc này giúp tránh xung đột cập nhật và lỗi hiển thị trùng lặp.
+                        console.log("[submitPointModal] Server success response:", data);
+                        if (action === 'update_point' && originalName && originalName !== newName) {{
+                            // Renamed: remove old, add new client-side
+                            console.log(`[submitPointModal] Renaming point from ${{originalName}} to ${{newName}}`);
+                            // Note: Removing/adding overlays client-side is handled below drawPointOnOSD
+                            removePointOverlay(originalName);
+                            delete clientPointsData[originalName];
+                        }}
+                        // Đảm bảo pointDetails chứa dữ liệu chính xác trước khi gán
+                        console.log("[submitPointModal] Point details to be added/updated on client:", JSON.stringify(pointDetails));
+                        
+                        clientPointsData[newName] = {{ ...pointDetails, osdOverlay: null, textOverlay: null }};
+                        console.log("[submitPointModal] clientPointsData updated for:", newName, JSON.stringify(clientPointsData[newName]));
+                        
+                        drawPointOnOSD(clientPointsData[newName]);
+                        if (!originalName) nextPointNumericId++; // Increment only for new points
+                        
+                        // If point was renamed, update paths referencing it
+                        if (originalName && originalName !== newName) {{
+                            updatePathsAfterPointRename(originalName, newName);
+                        }}
                         closePointModal();
+                        // viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after point change
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
                     }} else {{
                         alert("Lỗi từ server: " + data.message);
                         console.error("[submitPointModal] Server error response:", data.message);
                     }}
                 }})
-                .catch(error => {{
-                    console.error('Error submitting point:', error);
-                    alert("Lỗi kết nối khi gửi dữ liệu điểm.");
-                }});
+                .catch(error => console.error('Error submitting point:', error));
             }}
 
             function deletePointFromModal() {{
-                const pointName = document.getElementById('modalOriginalPointName').value;
-                if (pointName && confirm(`Bạn có chắc muốn xóa điểm "${{pointName}}"? Thao tác này cũng sẽ xóa các đường đi liên quan.`)) {{
-                    fetch('/delete_point', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ name: pointName }})
-                    }})
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            // Đóng modal. Tiến trình nền sẽ tự động cập nhật giao diện và tính toán lại ID điểm tiếp theo.
-                            closePointModal();
-                        }} else {{
-                            alert("Lỗi xóa điểm từ server: " + data.message);
-                        }}
-                    }})
-                    .catch(error => console.error('Error deleting point:', error));
+                const pointName = document.getElementById('modalOriginalPointName').value; // Use original name for deletion
+                if (pointName && confirm(`Bạn có chắc muốn xóa điểm "${"{pointName}"}"? Thao tác này cũng sẽ xóa các đường đi liên quan.`)) {{
+                    deletePoint(pointName); // This function will handle server call and client-side cleanup
+                    closePointModal();
                 }}
             }}
             
@@ -1573,6 +1328,8 @@ def main_web():
                         }});
                         console.log(`Point ${"{pointName}"} and its paths deleted from client.`);
                         if (!calledFromPathUpdate) alert(`Điểm "${"{pointName}"}" và các đường liên quan đã được xóa.`);
+                        // viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after point deletion
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
                     }} else {{
                         alert("Lỗi xóa điểm từ server: " + data.message);
                     }}
@@ -1608,6 +1365,7 @@ def main_web():
                             p2_name: newP2Name,
                             osdOverlay: null, textOverlay: null
                         }};
+                        drawPathOnOSD(clientPathsData[newPathName]);
                         pathsToUpdateOnServer.push({{old_path_name: pathId, new_path_data: clientPathsData[newPathName]}});
                     }}
                 }}
@@ -1622,6 +1380,61 @@ def main_web():
                 }}
             }}
 
+
+            // --- OSD Drawing Functions ---
+            function drawPointOnOSD(point) {{ // point is from clientPointsData
+                console.log("[drawPointOnOSD] Attempting to draw point:", JSON.stringify(point));
+                if (!viewer) {{
+                    console.error("[drawPointOnOSD] Viewer is not initialized!");
+                    return;
+                }}
+                if (typeof point.x !== 'number' || typeof point.y !== 'number' || isNaN(point.x) || isNaN(point.y)) {{
+                    console.error("[drawPointOnOSD] Invalid coordinates for point:", point);
+                    return;
+                }}
+
+                removePointOverlay(point.name);
+
+                const overlayEl = document.createElement("div");
+                overlayEl.style.width = "10px";
+                overlayEl.style.height = "10px";
+                overlayEl.style.backgroundColor = "red";
+                overlayEl.style.borderRadius = "50%";
+                overlayEl.style.border = "1px solid darkred";
+                overlayEl.style.transform = "translate(-50%, -50%)"; // Center the div on the point
+                console.log("[drawPointOnOSD] Point element created:", overlayEl);
+                
+                try {{
+                    viewer.addOverlay({{
+                        element: overlayEl,
+                        location: new OpenSeadragon.Point(point.x, point.y),
+                        placement: OpenSeadragon.Placement.CENTER
+                    }});
+                }} catch (e) {{
+                    console.error(`[drawPointOnOSD] Error adding point overlay for ${{point.name}}:`, e);
+                }}
+                clientPointsData[point.name].osdOverlay = overlayEl;
+
+                const textEl = document.createElement("div");
+                textEl.innerText = point.name;
+                textEl.style.color = "white";
+                textEl.style.fontSize = "12px"; 
+                textEl.style.backgroundColor = "rgba(0,0,0,0.6)";
+                textEl.style.padding = "1px 3px";
+                textEl.style.borderRadius = "3px";
+                textEl.style.transform = "translate(8px, -50%)"; // Position text next to point                console.log("[drawPointOnOSD] Text element created:", textEl);
+
+                try {{
+                    viewer.addOverlay({{
+                        element: textEl,
+                        location: new OpenSeadragon.Point(point.x, point.y),
+                        placement: OpenSeadragon.Placement.BOTTOM_LEFT // Example: place text below and to the left
+                    }});
+                }} catch (e) {{
+                    console.error(`[drawPointOnOSD] Error adding text overlay for ${{point.name}}:`, e);
+                }}
+                clientPointsData[point.name].textOverlay = textEl;
+            }}
 
             function removePointOverlay(pointName) {{
                 // console.log("[removePointOverlay] Attempting to remove overlays for point:", pointName);
@@ -1668,8 +1481,13 @@ def main_web():
                     return res.json(); // If res.ok, proceed to parse JSON
                 }})
                 .then(data => {{
+                    // This 'data' is now the successfully parsed JSON from an OK response
+                    // The 'data.status' check is still relevant if server uses it for application-level success/failure
                     if (data.status === 'success') {{
                         clientPathsData[pathName] = {{ ...pathData, osdOverlay: null, textOverlay: null }};
+                        drawPathOnOSD(clientPathsData[pathName]);
+                        // viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after path added
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
                     }} else {{
                         alert("Lỗi thêm đường từ server: " + (data.message || "Lỗi không xác định từ server."));
                     }}
@@ -1679,7 +1497,108 @@ def main_web():
                     alert("Không thể thêm đường: " + error.message);
                 }});
             }}
+
+            function drawPathOnOSD(path) {{ // path is from clientPathsData
+                console.log("[drawPathOnOSD] Attempting to draw path:", JSON.stringify(path));
+                if (!viewer) {{
+                    console.error("[drawPathOnOSD] Viewer is not initialized!");
+                    return;
+                }}
+
+                // Check if the main image item is loaded and has dimensions
+                const imageItem = viewer.world.getItemAt(0);
+                if (!imageItem || !imageItem.source || !imageItem.source.dimensions) {{
+                    console.warn(`[drawPathOnOSD] Viewer image source not ready for path "${{path.name}}". Skipping drawing.`);
+                    return;
+                }}
+
+                removePathOverlay(path.name);
+                const p1 = clientPointsData[path.p1_name];
+                const p2 = clientPointsData[path.p2_name];
+                if (!p1 || !p2) {{
+                    return;
+                }}
+                if (typeof p1.x !== 'number' || typeof p1.y !== 'number' || typeof p2.x !== 'number' || typeof p2.y !== 'number' ||
+                    isNaN(p1.x) || isNaN(p1.y) || isNaN(p2.x) || isNaN(p2.y)) {{
+                    console.warn(`[drawPathOnOSD] Invalid coordinates for points in path "${"{path.name}"}". Cannot draw.`);
+                    console.warn(`P1: (${{p1.x}}, ${{p1.y}}), P2: (${{p2.x}}, ${{p2.y}})`);
+
+                    return;
+                }}
+
+                const svgNS = "http://www.w3.org/2000/svg";
+                const svgOverlayEl = document.createElementNS(svgNS, "svg");
+                const lineEl = document.createElementNS(svgNS, "line");
+                
+                const imgWidth = imageItem.source.dimensions.x;
+                const imgHeight = viewer.world.getItemAt(0).source.dimensions.y;
+
+                // Position SVG overlay to cover the entire image initially
+                svgOverlayEl.style.position = "absolute";
+                svgOverlayEl.style.left = "0";
+                svgOverlayEl.style.top = "0";
+                svgOverlayEl.style.width = imgWidth + "px";
+                svgOverlayEl.style.height = imgHeight + "px";
+                svgOverlayEl.setAttribute("viewBox", `0 0 ${"{imgWidth}"} ${"{imgHeight}"}`);
+                svgOverlayEl.style.pointerEvents = "none"; // Allow clicks to pass through
+
+                // lineEl.setAttribute("x1", p1.x);
+                // lineEl.setAttribute("y1", p1.y);
+                // lineEl.setAttribute("x2", p2.x);
+                // lineEl.setAttribute("y2", p2.y);
+                // lineEl.setAttribute("stroke", "yellow");
+                // lineEl.setAttribute("stroke-width", "3"); // Adjust stroke width as needed (image pixels)
+                
+                svgOverlayEl.appendChild(lineEl);
+                
+                // Instead, we create an SVG element for just the line and position it.
+                // This is more complex with OSD overlays. A simpler approach is to draw directly on the image server-side.
+                // However, sticking to the current client-side drawing approach:
+                lineEl.setAttribute("x1", p1.x);
+                lineEl.setAttribute("y1", p1.y);
+                lineEl.setAttribute("x2", p2.x);
+                lineEl.setAttribute("y2", p2.y); // Add this line, seems missing
+                clientPathsData[path.name].osdOverlay = svgOverlayEl; // Store the SVG element
+
+                try {{
+                     viewer.addOverlay({{
+                        element: svgOverlayEl,
+                        location: new OpenSeadragon.Point(0, 0) // SVG covers the whole image plane
+                    }});
+                }} catch (e) {{
+                    console.error(`[drawPathOnOSD] Error adding SVG path overlay for ${{path.name}}:`, e);
+                }}
+
+                // Add text label for path
+                const textEl = document.createElement("div");
+                textEl.innerText = path.name;
+                textEl.style.color = "yellow";
+                textEl.style.fontSize = "10px";
+                textEl.style.backgroundColor = "rgba(0,0,0,0.5)";
+                textEl.style.padding = "1px 3px";
+                textEl.style.borderRadius = "3px";
+                textEl.style.transform = "translate(-50%, -50%)"; // Center text
+                try {{
+                    viewer.addOverlay({{
+                        element: textEl,
+                        location: new OpenSeadragon.Point((p1.x + p2.x) / 2, (p1.y + p2.y) / 2),
+                        placement: OpenSeadragon.Placement.TOP_LEFT // OSD places top-left of element at location
+                    }});
+                }} catch (e) {{
+                    console.error(`[drawPathOnOSD] Error adding text path overlay for ${{path.name}}:`, e);
+                }}
+                clientPathsData[path.name].textOverlay = textEl;
+            }}
             
+            function removePathOverlay(pathName) {{
+                if (clientPathsData[pathName]) {{
+                    if (clientPathsData[pathName].osdOverlay) viewer.removeOverlay(clientPathsData[pathName].osdOverlay);
+                    if (clientPathsData[pathName].textOverlay) viewer.removeOverlay(clientPathsData[pathName].textOverlay);
+                    clientPathsData[pathName].osdOverlay = null;
+                    clientPathsData[pathName].textOverlay = null;
+                }}
+            }}
+
             function deletePath(pathName) {{
                 fetch('/delete_path', {{
                     method: 'POST',
@@ -1689,6 +1608,10 @@ def main_web():
                 .then(res => res.json())
                 .then(data => {{
                     if (data.status === 'success') {{
+                        removePathOverlay(pathName);
+                        delete clientPathsData[pathName];
+                        // viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after path deletion
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
                         alert(`Đường "${"{pathName}"}" đã được xóa.`);
                     }} else {{
                         alert("Lỗi xóa đường từ server: " + data.message);
@@ -1837,23 +1760,40 @@ def main_web():
 
             function loadPointList() {{
                 const filename = document.getElementById('selectSavedPointList').value;
-                if (!filename) {{ alert("Vui lòng chọn danh sách điểm để tải."); return; }} 
-                if (confirm("Tải danh sách điểm mới sẽ xóa tất cả các điểm và đường đi hiện tại. Tiếp tục?")) {{
-                    fetch(`/load_points/${{filename}}`)
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.status === 'success') {{
-                            clearAllClientDataAndOverlays();
-                            // Hàm updatePointsPath sẽ xử lý việc xóa dữ liệu cũ, tải và vẽ lại điểm mới,
-                            // đồng thời xóa các đường đi cũ và cập nhật lại ID điểm tiếp theo.
-                            updatePointsPath(data.points_data || {{}}, {{}}); // Truyền vào một đối tượng đường đi rỗng
-                            alert(`Danh sách điểm "${{filename}}.json" đã được tải.`);
-                        }} else {{
-                            alert("Lỗi tải danh sách điểm: " + data.message);
+                if (!filename) {{ alert("Vui lòng chọn danh sách điểm để tải."); return; }}
+                fetch(`/load_points/${"{filename}"}`)
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.status === 'success') {{
+                        clearAllClientDataAndOverlays(); // Clear existing before loading
+                        const serverPoints = data.points_data || {{}};
+                        for (const name in serverPoints) {{
+                            const pArray = serverPoints[name];
+                            clientPointsData[name] = {{
+                                name: name, x: pArray[0], y: pArray[1], type: pArray[2], angle: pArray[3],
+                                osdOverlay: null, textOverlay: null
+                            }};
+                            drawPointOnOSD(clientPointsData[name]);
                         }}
-                    }})
-                    .catch(error => console.error('Error loading point list:', error));
-                }}
+                        // Update nextPointNumericId if needed based on loaded points
+                        let maxId = 0;
+                        Object.keys(clientPointsData).forEach(name => {{
+                            if (name.startsWith('P')) {{
+                                const num = parseInt(name.substring(1));
+                                if (!isNaN(num) && num > maxId) maxId = num;
+                            }}
+                        }});
+                        nextPointNumericId = maxId + 1;
+
+                        alert(`Danh sách điểm "${"{filename}"}.json" đã được tải.`);
+                        //viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after loading points
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
+                        // Note: Loading points does not automatically load associated paths. Load paths separately.
+                    }} else {{
+                        alert("Lỗi tải danh sách điểm: " + data.message);
+                    }}
+                }})
+                .catch(error => console.error('Error loading point list:', error));
             }}
             
             function savePathList() {{
@@ -1898,11 +1838,14 @@ def main_web():
                                 const p2Exists = clientPointsData[pArray[1]];
                                 if(p1Exists && p2Exists) {{
                                     clientPathsData[name] = {{ name: name, p1_name: pArray[0], p2_name: pArray[1], osdOverlay: null, textOverlay: null }};
+                                    drawPathOnOSD(clientPathsData[name]);
                                 }} else {{
                                     console.warn(`[loadCurrentState] Skipping path "${{name}}" because point "${{pArray[0]}}" (${{p1Exists ? 'exists' : 'missing'}}) or point "${{pArray[1]}}" (${{p2Exists ? 'exists' : 'missing'}}) is missing from clientPointsData.`);
                             }}
                         }}
                         alert(`Danh sách đường "${"{filename}"}.json" đã được tải.`);
+                        // viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image after loading paths
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
                     }} else {{
                         alert("Lỗi tải danh sách đường: " + data.message);
                     }}
@@ -1935,20 +1878,148 @@ def main_web():
                 }});
             }}
 
-            function toggleSpeaker() {{
-                fetch('/api/toggle_speaker', {{ method: 'POST' }})
+            // --- Grid Management Functions ---
+            function populateGridList() {{
+                const container = document.getElementById('grid-list-container');
+                container.innerHTML = ''; // Clear existing list
+                if (Object.keys(clientGridData).length === 0) {{
+                    container.innerHTML = '<p style="color: #888; text-align: center; font-style: italic;">Không có grid nào.</p>';
+                    return;
+                }}
+                for (const name in clientGridData) {{
+                    const grid = clientGridData[name];
+                    const item = document.createElement('div');
+                    item.style.padding = '4px';
+                    item.style.borderBottom = '1px solid #f0f0f0';
+                    item.style.cursor = 'pointer';
+                    item.style.display = 'flex';
+                    item.style.justifyContent = 'space-between';
+                    item.style.alignItems = 'center';
+                    item.innerHTML = `<span>${{grid.name}}</span> <span style="font-size: 10px; color: #fff; background-color:${{grid.mau}}; padding: 1px 4px; border-radius: 3px;">${{grid.mau}}</span>`;
+                    item.onclick = () => openGridModal(grid);
+                    container.appendChild(item);
+                }}
+            }}
+
+            function openGridModal(gridData) {{
+                const modal = document.getElementById('gridModal');
+                const isEditing = gridData !== null;
+
+                document.getElementById('gridModalTitle').textContent = isEditing ? 'Sửa Grid' : 'Thêm Grid Mới';
+                document.getElementById('modalOriginalGridName').value = isEditing ? gridData.name : '';
+                document.getElementById('modalGridName').value = isEditing ? gridData.name : '';
+                
+                const vi_tri = isEditing ? gridData.vi_tri : [0,0,0,0];
+                document.getElementById('modalGridX1').value = vi_tri[0];
+                document.getElementById('modalGridY1').value = vi_tri[1];
+                document.getElementById('modalGridX2').value = vi_tri[2];
+                document.getElementById('modalGridY2').value = vi_tri[3];
+
+                const diem = isEditing && gridData.diem ? gridData.diem : [0,0];
+                document.getElementById('modalGridDiemX').value = diem[0];
+                document.getElementById('modalGridDiemY').value = diem[1];
+
+                document.getElementById('modalGridColor').value = isEditing ? gridData.mau : 'yellow';
+                document.getElementById('modalGridType').value = isEditing ? gridData.loai_diem : '';
+
+                document.getElementById('deleteGridModalButton').style.display = isEditing ? 'inline-block' : 'none';
+                modal.style.display = 'block';
+            }}
+
+            function closeGridModal() {{
+                document.getElementById('gridModal').style.display = 'none';
+            }}
+
+            function submitGridModal() {{
+                const originalName = document.getElementById('modalOriginalGridName').value;
+                const newName = document.getElementById('modalGridName').value.trim();
+                if (!newName) {{ alert("Tên grid không được để trống."); return; }}
+
+                // Check for name collision if adding new or renaming
+                if ((!originalName || originalName !== newName) && clientGridData[newName]) {{
+                    alert(`Tên grid "${"{newName}"}" đã tồn tại. Vui lòng chọn tên khác.`);
+                    return;
+                }}
+
+                const x1 = parseInt(document.getElementById('modalGridX1').value, 10) || 0;
+                const y1 = parseInt(document.getElementById('modalGridY1').value, 10) || 0;
+                const x2 = parseInt(document.getElementById('modalGridX2').value, 10) || 0;
+                const y2 = parseInt(document.getElementById('modalGridY2').value, 10) || 0;
+
+                const diemX = parseInt(document.getElementById('modalGridDiemX').value, 10);
+                const diemY = parseInt(document.getElementById('modalGridDiemY').value, 10);
+
+                // Client-side validation for diem within vi_tri
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+
+                if (isNaN(diemX) || isNaN(diemY)) {{
+                    alert("Tọa độ điểm (X, Y) không được để trống.");
+                    return;
+                }}
+
+                if (diemX < minX || diemX > maxX || diemY < minY || diemY > maxY) {{
+                    alert(`Điểm (${{diemX}}, ${{diemY}}) phải nằm trong khung vị trí [${{minX}}, ${{minY}}, ${{maxX}}, ${{maxY}}].`);
+                    return;
+                }}
+
+                const gridDetails = {{
+                    original_name: originalName, // Send original name for server to find which one to update/rename
+                    name: newName,
+                    vi_tri: [x1, y1, x2, y2],
+                    diem: [diemX, diemY], // Add diem here
+                    mau: document.getElementById('modalGridColor').value,
+                    loai_diem: document.getElementById('modalGridType').value.trim()
+                }};
+
+                fetch('/api/update_grid_cell', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(gridDetails)
+                }})
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.status === 'success') {{
+                        // Update client-side data
+                        if (originalName && originalName !== newName) {{
+                            delete clientGridData[originalName];
+                        }}
+                        clientGridData[newName] = data.updated_grid;
+                        populateGridList();
+                        closeGridModal();
+                        viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image to show updated grid
+                        window.location.reload(); // Refresh toàn bộ trang web sau khi thay đổi điểm
+                    }} else {{
+                        alert("Lỗi từ server: " + data.message);
+                    }}
+                }})
+                .catch(error => console.error('Error submitting grid:', error));
+            }}
+
+            function deleteGridFromModal() {{
+                const gridName = document.getElementById('modalOriginalGridName').value;
+                if (gridName && confirm(`Bạn có chắc muốn xóa grid "${"{gridName}"}"?`)) {{
+                    fetch('/api/delete_grid_cell', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ name: gridName }})
+                    }})
                     .then(response => response.json())
                     .then(data => {{
                         if (data.status === 'success') {{
-                            alert('Đã gửi yêu cầu bật loa!');
+                            delete clientGridData[gridName];
+                            populateGridList();
+                            closeGridModal();
+                            viewer.open('/full_image.jpg?' + new Date().getTime()); // Refresh image
                         }} else {{
-                            alert('Lỗi: ' + data.message);
+                            alert("Lỗi xóa grid từ server: " + data.message);
                         }}
                     }})
-                    .catch(error => console.error('Error toggling speaker:', error));
+                    .catch(error => console.error('Error deleting grid:', error));
+                }}
             }}
-
-
         </script>
     </body>
     </html> 
@@ -2004,7 +2075,7 @@ def update_setting_route():
 # --- Map Selection Endpoints ---
 @app.route('/confirm_map_update', methods=['POST'])
 def confirm_map_update_route():
-    global dict_chon_ban_do, current_image0, image_lock, danh_sach_diem, danh_sach_duong, update_ds_diem_duong
+    global dict_chon_ban_do, current_image0, image_lock, danh_sach_diem, danh_sach_duong
     data = request.get_json()
     if data and 'ten_ban_do' in data and 'update' in data:
         if data['update'] == 1:
@@ -2035,7 +2106,6 @@ def confirm_map_update_route():
                         dict_chon_ban_do['update'] = 1 # Reset flag after processing
                         print(f"Server loaded new map: {dict_chon_ban_do}")
                         # Clear points and paths on server when map changes
-                        update_ds_diem_duong = 1
                         danh_sach_diem = {}
                         danh_sach_duong = {}
                         loaded_successfully = True
@@ -2082,17 +2152,16 @@ def confirm_agv_update_route():
             return jsonify({"status": "success", "message": "AGV position setup processed."}), 200
         
         elif is_confirm_action: # This comes from the "Cập nhật vị trí" button
-            # dict_dieu_chinh_vi_tri_agv['update'] = 1 # Signal main.py/process_lidar to process this
+            dict_dieu_chinh_vi_tri_agv['update'] = 1 # Signal main.py/process_lidar to process this
             dict_dieu_chinh_vi_tri_agv['setup'] = 0  # This is a confirmation, so setup mode is off
             print(f"Server AGV position CONFIRMED for update: X={new_x}, Y={new_y}, Angle={new_angle}, Update=1, Setup=0")
             # The 'update' flag will be reset by process_lidar.py after consumption.
             return jsonify({"status": "success", "message": "AGV position update confirmed."}), 200
         
         else:
-            # Trường hợp này là khi setup=0 và update=0, tức là thoát khỏi chế độ setup.
-            dict_dieu_chinh_vi_tri_agv['setup'] = 0
-            print(f"Server AGV position data updated (setup mode off): X={new_x}, Y={new_y}, Angle={new_angle}")
-            return jsonify({"status": "success", "message": "AGV position data updated (setup mode off)."}), 200
+            # Data received without 'setup=1' or 'update=1'.
+            print(f"Server AGV position data updated (no flags): X={new_x}, Y={new_y}, Angle={new_angle}")
+            return jsonify({"status": "success", "message": "AGV position data updated (no flags)."}), 200
 
     except ValueError:
         return jsonify({"status": "error", "message": "Invalid data type for AGV position."}), 400
@@ -2104,7 +2173,7 @@ def confirm_agv_update_route():
 # Server expects: {"name": "P1", "x": 100, "y": 200, "type": "có hướng", "angle": 90}
 @app.route('/add_point', methods=['POST'])
 def add_point_route():
-    global danh_sach_diem, update_ds_diem_duong
+    global danh_sach_diem
     data = request.get_json()
     point_name = data.get('name')
     if point_name and 'x' in data and 'y' in data and 'type' in data and 'angle' in data:
@@ -2116,14 +2185,14 @@ def add_point_route():
             data['type'], float(data['angle'])
         ]
         print(f"Server added point: {point_name} -> {danh_sach_diem[point_name]}")
-        update_ds_diem_duong = 1
+        update_img()
         return jsonify({"status": "success", "message": "Point added."}), 201
     return jsonify({"status": "error", "message": "Invalid point data for add"}), 400
 
 # Server expects: {"old_name": "P1", "name": "P1_new", "x": 110, ...} or if no rename: {"name": "P1", "x":110, ...}
 @app.route('/update_point', methods=['POST'])
 def update_point_route():
-    global danh_sach_diem, danh_sach_duong, update_ds_diem_duong
+    global danh_sach_diem, danh_sach_duong
     data = request.get_json()
     point_name = data.get('name')
     old_name = data.get('old_name', point_name) # If old_name is provided, it's a rename
@@ -2161,16 +2230,15 @@ def update_point_route():
                 print(f"Server updated path '{path_id}' to '{new_path_id}' due to point rename.")
     
     danh_sach_diem[point_name] = new_point_data
-    update_ds_diem_duong = 1
     # --- Draw points and paths on current_image ---
-    # update_img()
+    update_img()
     print(f"Server updated point: {old_name} -> {point_name} Data: {new_point_data}")
     return jsonify({"status": "success", "message": "Point updated.", "new_name": point_name, "affected_paths": affected_paths_new_names if old_name != point_name else {}}), 200
 
 
 @app.route('/delete_point', methods=['POST'])
 def delete_point_route():
-    global danh_sach_diem, danh_sach_duong, update_ds_diem_duong
+    global danh_sach_diem, danh_sach_duong
     data = request.get_json()
     point_name = data.get('name')
     if point_name:
@@ -2184,8 +2252,7 @@ def delete_point_route():
                 print(f"Server cascade deleted path: {path_id}")
             print(f"Server deleted point: {point_name}")
             
-            # update_img()
-            update_ds_diem_duong = 1
+            update_img()
             return jsonify({"status": "success", "message": "Point and associated paths deleted."}), 200
         return jsonify({"status": "error", "message": "Point not found."}), 404
     return jsonify({"status": "error", "message": "Invalid point name for deletion"}), 400
@@ -2194,7 +2261,7 @@ def delete_point_route():
 # Server expects: {"name": "P1_P2", "p1_name": "P1", "p2_name": "P2"}
 @app.route('/add_path', methods=['POST'])
 def add_path_route():
-    global danh_sach_duong, update_ds_diem_duong
+    global danh_sach_duong
     data = request.get_json()
     path_name = data.get('name')
     p1_name = data.get('p1_name')
@@ -2208,14 +2275,13 @@ def add_path_route():
             
         danh_sach_duong[path_name] = [p1_name, p2_name]
         print(f"Server added path: {path_name} -> {danh_sach_duong[path_name]}")
-        # update_img()
-        update_ds_diem_duong = 1
+        update_img()
         return jsonify({"status": "success", "message": "Path added."}), 201
     return jsonify({"status": "error", "message": "Invalid path data for add"}), 400
 
 @app.route('/delete_path', methods=['POST'])
 def delete_path_route():
-    global danh_sach_duong, update_ds_diem_duong
+    global danh_sach_duong
     data = request.get_json()
     path_name = data.get('name')
     if path_name:
@@ -2223,8 +2289,7 @@ def delete_path_route():
             del danh_sach_duong[path_name]
             print(f"Server deleted path: {path_name}")
             # --- Draw points and paths on current_image ---
-            # update_img()
-            update_ds_diem_duong = 1
+            update_img()
             return jsonify({"status": "success", "message": "Path deleted."}), 200
         return jsonify({"status": "error", "message": "Path not found."}), 404
     return jsonify({"status": "error", "message": "Invalid path name for deletion"}), 400
@@ -2265,7 +2330,7 @@ def save_points_route():
 
 @app.route('/load_points/<filename>')
 def load_points_route(filename): # Change parameter name to match the variable rule
-    global danh_sach_diem, danh_sach_duong, file_diem_da_chon, update_ds_diem_duong # Keep globals
+    global danh_sach_diem, danh_sach_duong, file_diem_da_chon # Keep globals
     filename_base = filename.replace(".json", "") # Use a new variable name for the base filename
     file_diem_da_chon = filename_base
     filepath = os.path.join(PATH_POINTS_DIR, f"{filename_base}.json") # Use filename_base here
@@ -2278,8 +2343,7 @@ def load_points_route(filename): # Change parameter name to match the variable r
         danh_sach_diem = loaded_points
         danh_sach_duong = {} # Clear paths when loading points, as they might be inconsistent
         print(f"Points loaded from {filepath}. Paths cleared.")
-        # update_img()
-        update_ds_diem_duong = 1
+        update_img()
         print("danh_sach_diem: ", danh_sach_diem)
         return jsonify({"status": "success", "points_data": danh_sach_diem}), 200
     except Exception as e:
@@ -2305,7 +2369,7 @@ def save_paths_route():
 
 @app.route('/load_paths/<filename_with_ext>')
 def load_paths_route(filename_with_ext):
-    global danh_sach_duong, file_duong_da_chon, update_ds_diem_duong
+    global danh_sach_duong, file_duong_da_chon
     filename = filename_with_ext.replace(".json", "")
     file_duong_da_chon = filename
     filepath = os.path.join(PATH_PATHS_DIR, f"{filename}.json")
@@ -2325,8 +2389,7 @@ def load_paths_route(filename_with_ext):
         
         danh_sach_duong = valid_paths
         print(f"Paths loaded from {filepath}. Invalid paths skipped.")
-        # update_img()
-        update_ds_diem_duong = 1
+        update_img()
         print("danh_sach_duong: ", danh_sach_duong)
         return jsonify({"status": "success", "paths_data": danh_sach_duong}), 200
     except Exception as e:
@@ -2390,8 +2453,9 @@ def draw_centered_text_on_square(image, text, x1, y1, x2, y2, font_scale=0.5, fo
 
     return image
 def update_img():
-    global current_image, current_image0, paint_dict_data_grid, update_ds_diem_duong
+    global danh_sach_diem, danh_sach_duong, current_image, current_image0, paint_dict_data_grid
     # --- Draw points and paths on current_image ---
+    print("jjjjjjjjjjjjj")
     with image_lock:
         img_to_draw_on = current_image0.copy() # Start with the base map
 
@@ -2433,41 +2497,41 @@ def update_img():
             img_to_draw_on = cv2.addWeighted(overlay, alpha, img_to_draw_on, 1 - alpha, 0)
         # --- END NEW: Draw grid data ---
 
-        # # Draw all paths from danh_sach_duong
-        # for path_id, (p1_name, p2_name) in danh_sach_duong.items():
-        #     if p1_name in danh_sach_diem and p2_name in danh_sach_diem:
-        #         p1_coords = (int(danh_sach_diem[p1_name][0]), int(danh_sach_diem[p1_name][1]))
-        #         p2_coords = (int(danh_sach_diem[p2_name][0]), int(danh_sach_diem[p2_name][1]))
-        #         cv2.line(img_to_draw_on, p1_coords, p2_coords, (0, 255, 255), 2) # BGR: Yellow line, thickness 2
-        # # Draw all paths from danh_sach_duong
-        # for path_id, (p1_name, p2_name) in danh_sach_duong.items():
-        #     if p1_name in danh_sach_diem and p2_name in danh_sach_diem:
-        #         p1_coords = (int(danh_sach_diem[p1_name][0]), int(danh_sach_diem[p1_name][1]))
-        #         p2_coords = (int(danh_sach_diem[p2_name][0]), int(danh_sach_diem[p2_name][1]))
-        #         # Calculate midpoint for path name
-        #         mid_x = (p1_coords[0] + p2_coords[0]) // 2
-        #         mid_y = (p1_coords[1] + p2_coords[1]) // 2
-        #         cv2.putText(img_to_draw_on, path_id, (mid_x, mid_y), # Position text slightly above midpoint
-        #                     cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 255), 1, cv2.LINE_AA) # Cyan text
+        # Draw all paths from danh_sach_duong
+        for path_id, (p1_name, p2_name) in danh_sach_duong.items():
+            if p1_name in danh_sach_diem and p2_name in danh_sach_diem:
+                p1_coords = (int(danh_sach_diem[p1_name][0]), int(danh_sach_diem[p1_name][1]))
+                p2_coords = (int(danh_sach_diem[p2_name][0]), int(danh_sach_diem[p2_name][1]))
+                cv2.line(img_to_draw_on, p1_coords, p2_coords, (0, 255, 255), 2) # BGR: Yellow line, thickness 2
+        # Draw all paths from danh_sach_duong
+        for path_id, (p1_name, p2_name) in danh_sach_duong.items():
+            if p1_name in danh_sach_diem and p2_name in danh_sach_diem:
+                p1_coords = (int(danh_sach_diem[p1_name][0]), int(danh_sach_diem[p1_name][1]))
+                p2_coords = (int(danh_sach_diem[p2_name][0]), int(danh_sach_diem[p2_name][1]))
+                # Calculate midpoint for path name
+                mid_x = (p1_coords[0] + p2_coords[0]) // 2
+                mid_y = (p1_coords[1] + p2_coords[1]) // 2
+                cv2.putText(img_to_draw_on, path_id, (mid_x, mid_y), # Position text slightly above midpoint
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 255), 1, cv2.LINE_AA) # Cyan text
                 
-        #  # Draw all points from danh_sach_diem
-        # for name, p_data in danh_sach_diem.items():
-        #     px, py, p_type, p_angle = p_data
-        #     # Draw point (e.g., a red circle)
-        #     cv2.circle(img_to_draw_on, (int(px), int(py)), 3, (255, 0, 0), -1) # BGR: Red, radius 8
-        #     # Draw point name
-        #     cv2.putText(img_to_draw_on, name, (int(px) + 3, int(py) + 3),
-        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 255), 1, cv2.LINE_AA) # Magenta text
+         # Draw all points from danh_sach_diem
+        for name, p_data in danh_sach_diem.items():
+            px, py, p_type, p_angle = p_data
+            # Draw point (e.g., a red circle)
+            cv2.circle(img_to_draw_on, (int(px), int(py)), 3, (255, 0, 0), -1) # BGR: Red, radius 8
+            # Draw point name
+            cv2.putText(img_to_draw_on, name, (int(px) + 3, int(py) + 3),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 255), 1, cv2.LINE_AA) # Magenta text
 
-        #     # Nếu điểm là "có hướng", vẽ thêm mũi tên
-        #     if p_type == "có hướng":
-        #         arrow_length = 30  # Chiều dài mũi tên (pixel)
-        #         # Giả định p_angle là độ, 0 độ hướng sang phải, tăng dần theo chiều kim đồng hồ
-        #         angle_rad = math.radians(p_angle)
-        #         end_x = int(px + arrow_length * math.cos(angle_rad))
-        #         end_y = int(py + arrow_length * math.sin(angle_rad))
-        #         cv2.arrowedLine(img_to_draw_on, (int(px), int(py)), (end_x, end_y), (0, 255, 0), 2, tipLength=0.3) # Mũi tên màu xanh lá
-        update_ds_diem_duong = 1
+            # Nếu điểm là "có hướng", vẽ thêm mũi tên
+            if p_type == "có hướng":
+                arrow_length = 30  # Chiều dài mũi tên (pixel)
+                # Giả định p_angle là độ, 0 độ hướng sang phải, tăng dần theo chiều kim đồng hồ
+                angle_rad = math.radians(p_angle)
+                end_x = int(px + arrow_length * math.cos(angle_rad))
+                end_y = int(py + arrow_length * math.sin(angle_rad))
+                cv2.arrowedLine(img_to_draw_on, (int(px), int(py)), (end_x, end_y), (0, 255, 0), 2, tipLength=0.3) # Mũi tên màu xanh lá
+
         current_image = img_to_draw_on # Update the global image to be served
         print(f"Kích thước ảnh gửi lên web (cao, rộng, kênh): {current_image.shape}")
 @app.route('/get_saved_file_lists')
@@ -2492,65 +2556,30 @@ def get_current_state_route():
         "status": "success",
         "points_data": danh_sach_diem,
         "paths_data": danh_sach_duong,
-        "update_points_paths": update_ds_diem_duong,
+        "grid_data": dict_data_grid
     })
+
 
 
 # --- Signal Communication Endpoints ---
 @app.route('/PC_sent_AGV', methods=['POST'])
 def pc_sent_agv_endpoint():
-    global tin_hieu_nhan, thoi_gian_nhan_str
+    global tin_hieu_nhan, thoi_gian_nhan_str, last_receive_status_str
     data = request.get_json()
-    # print(data)
-    # {'signal': {'name_agv': 'agv1', 'dich_den': [4, 3], 'trang_thai': 'run'}}
     if data and 'signal' in data:
-        tin_hieu_nhan = data['signal']
+        tin_hieu_nhan = str(data['signal'])
         thoi_gian_nhan_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        last_receive_status_str = f"Đã nhận: '{tin_hieu_nhan}' lúc {thoi_gian_nhan_str}"
         print(f"Signal received: {tin_hieu_nhan} at {thoi_gian_nhan_str}")
         log_communication("nhan", thoi_gian_nhan_str, tin_hieu_nhan)
-        return jsonify({"status": "success", "message": tin_hieu_nhan}), 200
+        return jsonify({"status": "success", "message": "Signal received by server."}), 200
     return jsonify({"status": "error", "message": "Invalid signal data. Expecting {'signal': 'your_string'}."}), 400
 
-
-def bresenham_line(x0, y0, x1, y1):
-    """Thuật toán Bresenham (phiên bản an toàn hơn) để tìm các điểm trên đường thẳng."""
-    points = []
-    x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
-    
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    
-    # Sử dụng biến cục bộ để không thay đổi tham số đầu vào
-    x, y = x0, y0
-    
-    if dx > dy:
-        err = dx // 2
-        while x != x1:
-            points.append([x, y])
-            err -= dy
-            if err < 0:
-                y += sy
-                err += dx
-            x += sx
-    else:
-        err = dy // 2
-        while y != y1:
-            points.append([x, y])
-            err -= dx
-            if err < 0:
-                x += sx
-                err += dy
-            y += sy
-            
-    points.append([x1, y1]) # Thêm điểm cuối cùng
-    return points
 
 # Endpoint để client lấy thông tin vị trí AGV
 @app.route('/get_agv_state', methods=['GET'])
 def get_agv_state_route():
-    global dict_dieu_chinh_vi_tri_agv, points_color_blue, points_color_red, image_lock, update_ds_diem_duong, danh_sach_diem, danh_sach_duong
+    global dict_dieu_chinh_vi_tri_agv, points_color_blue, points_color_red, image_lock
     agv_body_coords_list = []
     agv_arrow_coords_list = []
     blue_points_list = []
@@ -2558,7 +2587,7 @@ def get_agv_state_route():
     with image_lock: # Đảm bảo an toàn luồng khi đọc các biến này
         center_x_map = float(dict_dieu_chinh_vi_tri_agv['toa_do_x'])
         center_y_map = float(dict_dieu_chinh_vi_tri_agv['toa_do_y'])
-        angle_deg = float(dict_dieu_chinh_vi_tri_agv['goc_agv']) - 90
+        angle_deg = - float(dict_dieu_chinh_vi_tri_agv['goc_agv'])
         angle_rad = math.radians(angle_deg)
 
         # AGV Body (Rectangle) - Define local coords then rotate and translate
@@ -2579,21 +2608,21 @@ def get_agv_state_route():
         rotated_local_body_corners = np.dot(local_body_corners_np, rotation_m.T)
         final_body_corners_map_space = rotated_local_body_corners + np.array([center_x_map, center_y_map])
 
-        # Lấy các điểm bao bên ngoài và điểm tâm cho thân AGV
+        # Rasterize the AGV body rectangle
+        min_x_body = int(np.floor(np.min(final_body_corners_map_space[:, 0])))
+        max_x_body = int(np.ceil(np.max(final_body_corners_map_space[:, 0])))
+        min_y_body = int(np.floor(np.min(final_body_corners_map_space[:, 1])))
+        max_y_body = int(np.ceil(np.max(final_body_corners_map_space[:, 1])))
+
+        # The contour for pointPolygonTest needs to be of type int32 or float32.
+        # final_body_corners_map_space is already float32 due to local_body_corners_np.
+        contour_body_for_test = final_body_corners_map_space.astype(np.float32) 
+
         temp_body_coords_list = []
-        
-        # Thêm điểm tâm
-        temp_body_coords_list.append([int(center_x_map), int(center_y_map)])
-
-        # Lấy các điểm trên đường viền bằng thuật toán Bresenham
-        corners = final_body_corners_map_space
-        num_corners = len(corners)
-        for i in range(num_corners):
-            p1 = corners[i]
-            p2 = corners[(i + 1) % num_corners]
-            line_points = bresenham_line(p1[0], p1[1], p2[0], p2[1])
-            temp_body_coords_list.extend(line_points)
-
+        for x_coord_test in range(min_x_body, max_x_body + 1):
+            for y_coord_test in range(min_y_body, max_y_body + 1):
+                if cv2.pointPolygonTest(contour_body_for_test, (float(x_coord_test), float(y_coord_test)), False) >= 0:
+                    temp_body_coords_list.append([x_coord_test, y_coord_test])
         agv_body_coords_list = temp_body_coords_list
 
         # AGV Arrow (Triangle) - Define local coords then rotate and translate
@@ -2624,70 +2653,79 @@ def get_agv_state_route():
                     temp_arrow_coords_list.append([x_coord_test, y_coord_test])
         agv_arrow_coords_list = temp_arrow_coords_list
 
-        # # Chuyển đổi NumPy arrays thành list để có thể serialize JSON
-        # if isinstance(points_color_blue, np.ndarray):
-        #     blue_points_list = points_color_blue.tolist()
-        # else: # Nếu là list, đảm bảo nó là list các list (cho JSON)
-        #     blue_points_list = [list(p) for p in points_color_blue] if points_color_blue else []
+        # Chuyển đổi NumPy arrays thành list để có thể serialize JSON
+        if isinstance(points_color_blue, np.ndarray):
+            blue_points_list = points_color_blue.tolist()
+        else: # Nếu là list, đảm bảo nó là list các list (cho JSON)
+            blue_points_list = [list(p) for p in points_color_blue] if points_color_blue else []
 
-        # if isinstance(points_color_red, np.ndarray):
-        #     red_points_list = points_color_red.tolist()
-        # else: # Nếu là list, đảm bảo nó là list các list
-        #     red_points_list = [list(p) for p in points_color_red] if points_color_red else []
+        if isinstance(points_color_red, np.ndarray):
+            red_points_list = points_color_red.tolist()
+        else: # Nếu là list, đảm bảo nó là list các list
+            red_points_list = [list(p) for p in points_color_red] if points_color_red else []
 
-    # response = {
-    #     "status": "success",
-    #     "agv_body_coords": agv_body_coords_list,
-    #     "agv_arrow_coords": agv_arrow_coords_list,
-    #     "points_blue": blue_points_list,
-    #     "points_red": red_points_list,
-    #     "update_points_paths": update_ds_diem_duong,
-    #     "points": danh_sach_diem,
-    #     "paths": danh_sach_duong
-    # }
-
-    response = {
+    return jsonify({
         "status": "success",
         "agv_body_coords": agv_body_coords_list,
         "agv_arrow_coords": agv_arrow_coords_list,
-        "update_points_paths": update_ds_diem_duong,
-        "points": danh_sach_diem,
-        "paths": danh_sach_duong
-    }
-
-    # Sau khi gửi thì reset cờ để không vẽ lại liên tục
-    update_ds_diem_duong = 0
-
-    return jsonify(response),200
+        "points_blue": blue_points_list,
+        "points_red": red_points_list
+    }), 200
 
 # --- Xử lý Danh sách Grid (GRID LISTS) ---
-@app.route('/api/toggle_run_stop', methods=['POST'])
-def toggle_run_stop_route():
-    global run_and_stop
-    if run_and_stop == 1:
-        run_and_stop = 0
-        return_run_stop = "stop"
-    else:
-        run_and_stop = 1
-        return_run_stop = "run"
-    print(f"Run/Stop state changed to: {run_and_stop}")
-    return jsonify({"status": "success", "currentState": return_run_stop})
+@app.route('/save_grid_list', methods=['POST'])
+def save_grid_list():
+    try:
+        data = request.json
+        grid_data = data.get('gridData')
+        grid_name = data.get('gridName')
 
-@app.route('/api/get_run_stop_status', methods=['GET'])
-def get_run_stop_status_route():
-    global run_and_stop
-    return jsonify({"status": str(run_and_stop)})
+        if not grid_data or not grid_name:
+            return jsonify({"status": "error", "message": "Thiếu dữ liệu gridData hoặc gridName"}), 400
 
-@app.route('/api/toggle_speaker', methods=['POST'])
-def toggle_speaker_route():
-    global open_loa
-    open_loa = 1
-    print(f"Biến open_loa đã được đặt thành: {open_loa}")
-    return jsonify({"status": "success", "message": "Yêu cầu bật loa đã được xử lý."})
+        file_path = os.path.join(PATH_GRID_LISTS_DIR, f"{grid_name}.json")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(grid_data, f, ensure_ascii=False, indent=4)
+        print(f"Danh sách Grid '{grid_name}' đã được lưu thành công.")
+        return jsonify({"status": "success", "message": f"Danh sách Grid '{grid_name}' đã được lưu."})
+    except Exception as e:
+        print(f"Lỗi khi lưu danh sách Grid: {e}")
+        return jsonify({"status": "error", "message": f"Lỗi khi lưu danh sách Grid: {e}"}), 500
 
+@app.route('/load_grid_list', methods=['POST'])
+def load_grid_list():
+    global dict_data_grid
+    try:
+        data = request.json
+        grid_name = data.get('gridName')
 
+        if not grid_name:
+            return jsonify({"status": "error", "message": "Thiếu gridName"}), 400
 
+        file_path = os.path.join(PATH_GRID_LISTS_DIR, f"{grid_name}.json")
+        if not os.path.exists(file_path):
+            return jsonify({"status": "error", "message": f"Không tìm thấy danh sách Grid '{grid_name}'"}), 404
 
+        with open(file_path, 'r', encoding='utf-8') as f:
+            grid_data = json.load(f)
+        
+        dict_data_grid = grid_data
+        print("grid_data", grid_data, dict_data_grid)
+        update_img()
+        print(f"Danh sách Grid '{grid_name}' đã được tải thành công.")
+        return jsonify({"status": "success", "gridData": grid_data}), 200
+    except Exception as e:
+        print(f"Lỗi khi tải danh sách Grid: {e}")
+        return jsonify({"status": "error", "message": f"Lỗi khi tải danh sách Grid: {e}"}), 500
+
+# Thêm route mới để lấy danh sách grid đã lưu cho dropdown
+@app.route('/get_grid_lists', methods=['GET'])
+def get_grid_lists_route():
+    try:
+        grid_lists = get_saved_lists(PATH_GRID_LISTS_DIR)
+        return jsonify({"status": "success", "gridLists": grid_lists})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
     
 # --- Luồng cập nhật vị trí AGV tự động ---
 def auto_update_agv_position_task():
@@ -2732,7 +2770,7 @@ def auto_update_agv_position_task():
                     points_color_red = points_color_red_np.tolist()
             # print(f"Updated blue points: {points_color_blue}")
             # print(f"Updated red points: {points_color_red}")
-            # update_img() # Vẽ lại ảnh nền với các điểm mới updateSpecialPoints
+            # update_img() # Vẽ lại ảnh nền với các điểm mới
 
 # host = "172.26.76.151"
 host = "192.168.143.1"
@@ -2763,17 +2801,14 @@ if __name__ == '__main__':
                     current_image0 = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3), dtype=np.uint8)
                     update_img()
             image_initialized = True
-            
+
         # Khởi tạo và bắt đầu luồng cập nhật AGV tự động
         agv_updater_thread = threading.Thread(target=auto_update_agv_position_task)
         agv_updater_thread.daemon = True # Đảm bảo luồng này sẽ thoát khi chương trình chính thoát
         agv_updater_thread.start()
 
-    # if not os.environ.get("WERKZEUG_RUN_MAIN"): # Open browser only in main Werkzeug process setInterval loadPointList drawPathLabel
-    #     # webbrowser.open_new_tab("http://localhost:5000") # Can be annoying in dev             function loadCurrentState() {
-
-    #     print("Flask server starting. Open http://localhost:5000 in your browser.") nextPointNumericId updateSpecialPoints
+    # if not os.environ.get("WERKZEUG_RUN_MAIN"): # Open browser only in main Werkzeug process reopenViewerPreserveState
+    #     # webbrowser.open_new_tab("http://localhost:5000") # Can be annoying in dev
+    #     print("Flask server starting. Open http://localhost:5000 in your browser.")
 
     app.run(debug=True, host=host, port=port, use_reloader=True)
-
-    # modalOriginalPointName             function loadPointList() { deletePointFromModal

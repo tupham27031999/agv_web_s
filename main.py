@@ -1,23 +1,42 @@
-from app_web import app
-import app_web
-import threading
-import time
-import webbrowser
-import cv2
+from support_main.lib_main import remove, load_data_csv, edit_csv_tab, convert
 import numpy as np
-import socket
+import cv2, os, time
+import threading
 import path
-import os
-from support_main.lib_main import edit_csv_tab
-import open3d as o3d
 from pynput import keyboard
-from support_main import connect_lidar_sick, connect_lidar
+import signal # Import the signal module
+from support_main import connect_lidar_sick, connect_lidar, music
 import process_lidar
-import detect_gicp
-import convert_2_lidar
+import webserver
+from webserver import app
+import webbrowser
 import driver_control_input
+import convert_2_lidar
+import detect_gicp
+import open3d as o3d
+import socket
+import check_loa_bluetooth
+from support_main import ket_noi_esp_loa
 
-# image_lock shared_data_lock
+
+
+path_phan_mem = path.path_phan_mem
+path_admin = path_phan_mem + "/setting/admin_window.csv"
+
+# Directories for saving data and maps
+SAVED_DATA_DIR = path_phan_mem + "/data_input_output"
+PATH_MAPS_DIR = SAVED_DATA_DIR + "/maps"
+name_map = "map"
+
+if os.name == "nt":
+    print("Hệ điều hành là Windows")
+    # Đọc file cài đặt cho Windows
+    path_admin = path_phan_mem + "/setting/admin_window.csv"
+elif os.name == "posix":
+    print("Hệ điều hành là Ubuntu (Linux)")
+    # Đọc file cài đặt cho Ubuntu
+    path_admin = path_phan_mem + "/setting/admin_ubuntu.csv"
+
 
 def get_local_ip():
     """
@@ -40,22 +59,6 @@ def get_local_ip():
             s.close()
 
 
-path_phan_mem = path.path_phan_mem
-path_admin = path_phan_mem + "/setting/admin_window.csv"
-
-# Directories for saving data and maps
-SAVED_DATA_DIR = path_phan_mem + "/data_input_output"
-PATH_MAPS_DIR = SAVED_DATA_DIR + "/maps"
-name_map = "map"
-
-if os.name == "nt":
-    print("Hệ điều hành là Windows")
-    # Đọc file cài đặt cho Windows
-    path_admin = path_phan_mem + "/setting/admin_window.csv"
-elif os.name == "posix":
-    print("Hệ điều hành là Ubuntu (Linux)")
-    # Đọc file cài đặt cho Ubuntu
-    path_admin = path_phan_mem + "/setting/admin_ubuntu.csv"
 path_folder_scan_lidar1 = path_phan_mem + "/data_input_output/scan_data_1"
 path_folder_scan_lidar2 = path_phan_mem + "/data_input_output/scan_data_2"
 path_folder_scan_lidar3 = path_phan_mem + "/data_input_output/scan_data_3"
@@ -63,8 +66,8 @@ window_size = 700
 window_size_all = 5000
 scaling_factor = 0.05
 rmse1 = 3
-rmse2 = 3 
-host = get_local_ip() # Tự động lấy IP
+rmse2 = 3
+host = get_local_ip()
 port = "5000"
 loai_lidar = "usb"
 data_admin = edit_csv_tab.load_all_stt(path_admin)
@@ -80,20 +83,29 @@ for i in range(0,len(data_admin)):
             rmse1 = int(float(data_admin[i][1]))
         if data_admin[i][0] == "rmse2": # sai so cap nhat map
             rmse2 = int(float(data_admin[i][1]))
+        if data_admin[i][0] == "host": # server 
+            host = data_admin[i][1]
         if data_admin[i][0] == "port":
             port = int(float(data_admin[i][1]))
         if data_admin[i][0] == "loai_lidar":
             loai_lidar = data_admin[i][1]
+        if data_admin[i][0] == "x_goc0":
+            if data_admin[i][1] != "none":
+                x_goc0 = int(float(data_admin[i][1]))
+        if data_admin[i][0] == "y_goc0":
+            if data_admin[i][1] != "none":
+                y_goc0 = int(float(data_admin[i][1]))
+        if data_admin[i][0] == "rotation0":
+            if data_admin[i][1] != "none":
+                rotation0 = float(data_admin[i][1])
 
-print("scaling_factor", scaling_factor, host)
+print("scaling_factor", scaling_factor)
 # host = "172.26.76.151"
 # port = "5000"
 path_folder_scan_data_0 = SAVED_DATA_DIR + "/scan_data_0"
 path_folder_scan_data_1 = SAVED_DATA_DIR + "/scan_data_1"
 path_folder_scan_data_2 = SAVED_DATA_DIR + "/scan_data_2"
 path_folder_scan_data_3 = SAVED_DATA_DIR + "/scan_data_3"
-
-
 
 def save_scan_to_npy(scan_data, filename, directory="scan_data"):
     """
@@ -145,7 +157,6 @@ def load_scan_from_npy(filename, directory="scan_data"):
         return scan_data, f"Đã đọc thành công dữ liệu từ: {os.path.abspath(filepath)}"
     except Exception as e:
         return None, f"Lỗi khi đọc file .npy: {e}"
-
 class support_main:
     def __init__(self,window_size,window_size_all,scaling_factor,rmse1,rmse2):
         self.stt_scan = 0
@@ -158,10 +169,10 @@ class support_main:
         self.is_saving_map_mode = False
         self.current_map_name_input = ""
         self.save_map_window_name = "Luu Ban Do - Nhap Ten" # Đã sửa để có dấu
-        self.input_rect = (50, 70, 300, 30) # x, y, w, h for text input box
+        self.input_rect = (50, 70, 300, 30) # x, y, w, h for text input box 
         self.save_button_rect = (150, 130, 100, 40) 
 
-        self.kiem_tra_connect = {"lidar": "off", "driver_motor": "off", "esp32": "off", "process_lidar": "on"}
+        self.kiem_tra_connect = {"lidar": "on", "driver_motor": "on", "esp32": "off", "process_lidar": "on"}
 
         self.img = np.zeros((self.window_size,self.window_size,3), np.uint8)
         self.map_all = np.zeros((self.window_size,self.window_size,3), np.uint8)
@@ -178,6 +189,10 @@ class support_main:
         self.tien, self.lui, self.trai, self.phai, self.stop = np.zeros(5)
 
         self.connect = {"lidar": False, "driver_motor": False, "esp32": False}
+        if self.kiem_tra_connect["driver_motor"] == "on":
+            self.driver_motor_check = 1
+        else:
+            self.driver_motor_check = 0
 
         self.connect_while = True
         # usb/ethernet
@@ -186,6 +201,8 @@ class support_main:
             # Giả sử process_lidar được khởi tạo ở đây nếu cần thiết sớm
             # hoặc đảm bảo nó được khởi tạo trước khi main_loop chạy lần đầu
             if self.kiem_tra_connect["process_lidar"] == "on":
+                # self.process_lidar = process_lidar.process_data_lidar(self.window_size,self.window_size_all,self.scaling_factor,self.rmse1,self.rmse2,
+                #                                                       x_goc0=x_goc0,y_goc0=y_goc0,rotation0=rotation0)
                 self.process_lidar = process_lidar.process_data_lidar(self.window_size,self.window_size_all,self.scaling_factor,self.rmse1,self.rmse2)
             if self.loai_lidar != "usb":
                 self.lidar = connect_lidar_sick.LidarP()
@@ -196,54 +213,92 @@ class support_main:
 
         if self.kiem_tra_connect["process_lidar"] == "on":
             if not hasattr(self, 'process_lidar'): # Đảm bảo chỉ khởi tạo một lần
+                # self.process_lidar = process_lidar.process_data_lidar(self.window_size,self.window_size_all,self.scaling_factor,self.rmse1,self.rmse2,
+                #                                                       x_goc0=x_goc0,y_goc0=y_goc0,rotation0=rotation0)
                 self.process_lidar = process_lidar.process_data_lidar(self.window_size,self.window_size_all,self.scaling_factor,self.rmse1,self.rmse2)
         
         if self.kiem_tra_connect["esp32"] == "on":
             load_data_esp = 1
         else:
             load_data_esp = 0
-        self.detect_data_driver = driver_control_input.detect_data_sent_driver(load_data_esp)
+        self.detect_data_driver = driver_control_input.detect_data_sent_driver(load_data_esp, driver_motor_check = self.driver_motor_check)
+        # self.detect_data_driver = driver_control_input.detect_data_sent_driver(load_data_esp, driver_motor_check = 0)
+
+        self.voxel_size = 120
+        self.loa_blutooth = 0
+        self.time_loa = 0
+        try:
+            threading.Thread(target=ket_noi_esp_loa.python_esp32).start()
+        except OSError as e:
+            print("error 44")
+            pass
 
     def main_loop(self):
 
-
+        list_data0 = os.listdir(path_folder_scan_data_0)
         list_data1 = os.listdir(path_folder_scan_lidar1)
         list_data2 = os.listdir(path_folder_scan_lidar2)
         list_data3 = os.listdir(path_folder_scan_lidar3)
 
-        # if self.stt_scan < len(list_data1) and self.stt_scan < len(list_data2):
-        #     scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/scan_"+ str(self.stt_scan) +".npy")
-        #     scan_alpha_2 = np.load(path_folder_scan_lidar2 + "/scan_"+ str(self.stt_scan) +".npy")
-        #     # self.stt_scan = self.stt_scan + 1
-        #     self.stt_scan = 5
-        # else:
-        #     self.connect_while = False
-        #     self.stt_scan = self.stt_scan - 1
-        #     scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/scan_"+ str(self.stt_scan) +".npy")
-        #     scan_alpha_2 = np.load(path_folder_scan_lidar2 + "/scan_"+ str(self.stt_scan) +".npy")
-        
-        if self.stt_scan < len(list_data3):
-            scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/Scan_data_"+ str(self.stt_scan) +".npy")
-            self.stt_scan = self.stt_scan + 1
-            # self.stt_scan = 5
+        # Xử lý yêu cầu bật loa từ giao diện web
+        if webserver.open_loa == 1:
+            webserver.open_loa = 0  # Reset lại cờ ngay sau khi xử lý
+            # Gửi tín hiệu bật loa (giữ nguyên logic cũ của bạn)
+            ket_noi_esp_loa.py_sent_esp("data#" + str(int("100001000", 2)))
+            self.time_loa = time.time()
+        if self.time_loa != 0:
+            if time.time() - self.time_loa > 5:
+                ket_noi_esp_loa.py_sent_esp("data#" + str(int("100000000", 2)))
+                self.time_loa = 0
+
+
+        if self.kiem_tra_connect["lidar"] == "on":
+            scan_alpha_1, _ = self.load_data_lidar()
+            # print(scan_alpha_1)
+            # print("--------------------------")
+
+            scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar(scan1_data_example=scan_alpha_1, 
+                                                                        scan2_data_example=scan_alpha_1, 
+                                                                        scaling_factor = 1,
+                                                                        lidar1_orient_deg = 45,
+                                                                        lidar2_orient_deg = 45,
+                                                                        agv_w=200,
+                                                                        agv_l=0)
+            # print(scan_xy)
+            # save_scan_to_npy(scan_alpha_1, "scan_" + str(self.stt_scan), path_folder_scan_data_0)
+            # save_scan_to_npy(scan_alpha_1, "scan_" + str(self.stt_scan), path_folder_scan_data_1)
+            # self.stt_scan = self.stt_scan + 1
         else:
-            self.connect_while = False
-            self.stt_scan = self.stt_scan - 1
-            scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/Scan_data_"+ str(self.stt_scan) +".npy")
+            # if self.stt_scan < len(list_data1) and self.stt_scan < len(list_data2):
+            #     scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/scan_"+ str(self.stt_scan) +".npy")
+            #     scan_alpha_2 = np.load(path_folder_scan_lidar2 + "/scan_"+ str(self.stt_scan) +".npy")
+            #     # self.stt_scan = self.stt_scan + 1
+            #     self.stt_scan = 5
+            # else:
+            #     self.connect_while = False
+            #     self.stt_scan = self.stt_scan - 1
+            #     scan_alpha_1 = np.load(path_folder_scan_lidar1 + "/scan_"+ str(self.stt_scan) +".npy")
+            #     scan_alpha_2 = np.load(path_folder_scan_lidar2 + "/scan_"+ str(self.stt_scan) +".npy")
 
-        # scan, _ = self.load_data_lidar()
+            if self.stt_scan < len(list_data0):
+                scan_alpha = np.load(path_folder_scan_data_1 + "/scan_"+ str(self.stt_scan) +".npy")
+                self.stt_scan = self.stt_scan + 1
+                # self.stt_scan = 500
+            else:
+                self.connect_while = False
+                self.stt_scan = self.stt_scan - 1
+                scan_alpha = np.load(path_folder_scan_data_1 + "/scan_"+ str(self.stt_scan) +".npy")
 
-        # scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar(scan1_data_example=scan_alpha_1, 
-        #                                                              scan2_data_example=scan_alpha_2, 
-        #                                                              scaling_factor = self.scaling_factor)
-        scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar( scan1_data_example=scan_alpha_1, 
-                                                                    scan2_data_example=scan_alpha_1, 
-                                                                    scaling_factor = 1,
-                                                                    lidar1_orient_deg = 0,
-                                                                    lidar2_orient_deg = 0,
-                                                                    agv_w=0,
-                                                                    agv_l=0)
-        scan_xy = detect_gicp.remove_duplicate_points(scan_xy)
+        
+            scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar( scan1_data_example=scan_alpha, 
+                                                                        scan2_data_example=scan_alpha, 
+                                                                        scaling_factor = 1,
+                                                                        lidar1_orient_deg = 45,
+                                                                        lidar2_orient_deg = 45,
+                                                                        agv_w=-400,
+                                                                        agv_l=500)
+            # print(scan_xy)
+        # scan_xy = detect_gicp.remove_duplicate_points(scan_xy, voxel_size=self.voxel_size)
         # print(scan_xy.shape)
 
         # scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar(scan1_data_example=scan_alpha_3, 
@@ -257,42 +312,26 @@ class support_main:
         # scan, _ = self.load_data_lidar()
         # print("scan = ", scan, scan0.shape)
         if self.kiem_tra_connect["process_lidar"] == "on":
-            # self.detect_data_driver.load_data_driver_motor = self.process_lidar.sent_data_driver_motor ###################################################
+            self.detect_data_driver.load_data_driver_motor = self.process_lidar.sent_data_driver_motor
             # thêm map, quét map hay không
             self.set_data_process()
             # xử lý tín hiệu lidar icp
             self.process_lidar.main_loop(scan_xy) # process_lidar.py cập nhật self.process_lidar.tam_x_agv, .tam_y_agv, .rotation
             # xử lý tín hiệu web gửi về, và gửi cho driver motor
             self.detect_data_driver.void_loop()
-        
-        self.load_data_web()
+            
         self.show_img()
-    def load_data_web(self):
-        ################################### lưu bản đồ ########################################
-        map_name_to_save = ""
-        # Sử dụng lock để đọc và ghi vào dictionary chia sẻ một cách an toàn.
-        # Thao tác này đảm bảo rằng luồng web không thể thay đổi dict_ban_do_moi
-        # trong khi luồng chính đang xử lý nó.
-        with app_web.shared_data_lock:
-            if app_web.dict_ban_do_moi["ten_ban_do_moi"] and app_web.dict_ban_do_moi["luu_ban_do_moi"] == 1:
-                map_name_to_save = app_web.dict_ban_do_moi["ten_ban_do_moi"]
-                # Reset các cờ ngay bên trong lock để tránh xử lý lại yêu cầu
-                app_web.dict_ban_do_moi["tao_ban_do_moi"] = 0
-                app_web.dict_ban_do_moi["ten_ban_do_moi"] = ""
-                app_web.dict_ban_do_moi["luu_ban_do_moi"] = 0
-            # Đọc trạng thái điều khiển bằng tay bên trong lock
-            self.data_sent_dk_driver["dk_tay"] = app_web.dict_ban_do_moi["tao_ban_do_moi"]
-        # Thực hiện việc lưu file (tốn thời gian) bên ngoài lock
-        if map_name_to_save:
-            self.save_current_map(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.map_all)
-            self.save_mask_map(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.mask_map_all)
-            self.save_point_cloud(map_name_to_save, PATH_MAPS_DIR, self.process_lidar.global_map)
-        ################################### lưu bản đồ ########################################
-
-
+        # if self.stt_scan < 200:
+            # save_scan_to_npy(scan, "scan_" + str(self.stt), path_folder_scan_data_0)
+            # save_scan_to_npy(scan, "scan_" + str(self.stt), path_folder_scan_data_1)
+            # save_scan_to_npy(scan, "scan_" + str(self.stt), path_folder_scan_data_2)
+            # save_scan_to_npy(scan, "scan_" + str(self.stt), path_folder_scan_data_3)
+            # print("stt_scan = ", self.stt_scan)
+        
+    
     def show_img(self):
         if self.kiem_tra_connect["process_lidar"] == "on":
-            self.img = self.process_lidar.img2
+            self.img = self.process_lidar.img2.copy()
         
         
         color_gray = (120, 120, 120)
@@ -303,30 +342,37 @@ class support_main:
         if self.kiem_tra_connect["process_lidar"] == "on":
             # rmse độ chính xác (càng bé càng tốt)
             rmse = self.process_lidar.rmse
-            # trung_binh = self.process_lidar.trung_binh
-            # bien_dem = self.process_lidar.bien_dem
-            # if bien_dem != 0:
-            #     trung_binh = trung_binh/bien_dem
+            trung_binh = self.process_lidar.trung_binh
+            bien_dem = self.process_lidar.bien_dem
+            if bien_dem != 0:
+                trung_binh = trung_binh/bien_dem
             # print(trung_binh, bien_dem)
+            # print(self.img.shape, rmse)
             if rmse > self.rmse1:
                 cv2.putText(self.img, "Do chinh xac: " + str(int(rmse * 100) / 100), (20,20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_red, 2)
             else:
                 cv2.putText(self.img, "Do chinh xac: " + str(int(rmse * 100) / 100), (20,20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_green, 2)
-            # cv2.putText(self.img, "Trung binh: " + str(trung_binh), (20,80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_green, 2)
+            cv2.putText(self.img, "Trung binh: " + str(trung_binh), (20,80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_green, 2)
         # chế độ điều khiển tay
         self.detect_data_driver.dk_agv_thu_cong = self.data_sent_dk_driver["dk_tay"]
+        # print("mmmmmmmmmm", self.detect_data_driver.dk_agv_thu_cong)
         if self.data_sent_dk_driver["dk_tay"] == 1:
+            self.voxel_size = 100
             if self.kiem_tra_connect["driver_motor"] == "on":
                 cv2.putText(self.img, "Dieu khien tay: ON", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_green, 2)
             else:
                 cv2.putText(self.img, "Dieu khien tay: ON (driver disconnect)", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_green, 2)
             self.data_sent_process_lidar["add_all_point"] = 1
         else:
+            self.voxel_size = 70
             cv2.putText(self.img, "Dieu khien tay: OFF", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_gray, 2)
             self.data_sent_dk_driver["data_dk_tay"] = ""
             self.data_sent_process_lidar["add_all_point"] = 0
 
         
+        
+
+
         cv2.imshow("map",self.img)
         # Xử lý sự kiện bàn phím
         key = cv2.waitKey(1) & 0xFF
@@ -341,7 +387,10 @@ class support_main:
                 self.display_save_map_window() # Hiển thị lần đầu
         # Xử lý sự kiện bàn phím
         elif key == ord('d'):
-            self.data_sent_dk_driver["dk_tay"] = not self.data_sent_dk_driver["dk_tay"]
+            if self.data_sent_dk_driver["dk_tay"] == 1:
+                self.data_sent_dk_driver["dk_tay"] = 0
+            else:
+                self.data_sent_dk_driver["dk_tay"] = 1
         # them các điểm vào map
         elif key == ord('a'):
             self.data_sent_process_lidar["add_map"] = 1
@@ -352,7 +401,9 @@ class support_main:
                     self.lidar.connect = False
                 else:
                     self.lidar.disconnect()
+            ket_noi_esp_loa.close_serial()
             self.connect_while = False
+            music.disconnect_sound()
         else:
             # lưu map
             if self.is_saving_map_mode:
@@ -501,28 +552,26 @@ class support_main:
                 self.trigger_save_map()
 
     def trigger_save_map(self):
-        # if self.current_map_name_input.strip():
-        #     name_map_to_save = self.current_map_name_input.strip()
-        #     print(f"Đang lưu bản đồ với tên: {name_map_to_save}.npy")
-        #     if self.kiem_tra_connect["process_lidar"] == "on" and hasattr(self, 'process_lidar'):
-        #         self.save_current_map(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.map_all)
-        #         self.save_mask_map(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.mask_map_all)
-        #         self.save_point_cloud(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.global_map)
-        #         # Cập nhật danh sách bản đồ trên webserver
-        #         if hasattr(webserver, 'get_available_maps') and callable(webserver.get_available_maps):
-        #             webserver.list_ban_do = webserver.get_available_maps()
-        #             print("Đã cập nhật danh sách bản đồ cho webserver.")
-        #         else:
-        #             print("Không tìm thấy module webserver hoặc hàm get_available_maps để cập nhật danh sách bản đồ.")
+        if self.current_map_name_input.strip():
+            name_map_to_save = self.current_map_name_input.strip()
+            print(f"Đang lưu bản đồ với tên: {name_map_to_save}.npy")
+            if self.kiem_tra_connect["process_lidar"] == "on" and hasattr(self, 'process_lidar'):
+                self.save_current_map(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.map_all)
+                self.save_mask_map(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.mask_map_all)
+                self.save_point_cloud(name_map_to_save, PATH_MAPS_DIR, self.process_lidar.global_map)
+                # Cập nhật danh sách bản đồ trên webserver
+                if hasattr(webserver, 'get_available_maps') and callable(webserver.get_available_maps):
+                    webserver.list_ban_do = webserver.get_available_maps()
+                    print("Đã cập nhật danh sách bản đồ cho webserver.")
+                else:
+                    print("Không tìm thấy module webserver hoặc hàm get_available_maps để cập nhật danh sách bản đồ.")
 
-        #     self.is_saving_map_mode = False
-        #     cv2.destroyWindow(self.save_map_window_name)
-        #     self.current_map_name_input = ""
-        # else:
-        #     print("Tên bản đồ không được để trống.")
-        #     # Có thể hiển thị thông báo lỗi trên cửa sổ "Save Map" (cần vẽ thêm)
-
-        pass
+            self.is_saving_map_mode = False
+            cv2.destroyWindow(self.save_map_window_name)
+            self.current_map_name_input = ""
+        else:
+            print("Tên bản đồ không được để trống.")
+            # Có thể hiển thị thông báo lỗi trên cửa sổ "Save Map" (cần vẽ thêm)
     def save_current_map(self, map_name, save_path_dir, map_all):
         """
         Lưu self.map_all (3 kênh BGR) vào file .npy.
@@ -636,10 +685,6 @@ class support_main:
         cv2.rectangle(img_save_dialog, (self.save_button_rect[0], self.save_button_rect[1]), (self.save_button_rect[0] + self.save_button_rect[2], self.save_button_rect[1] + self.save_button_rect[3]), (0,0,0), 1)
         cv2.putText(img_save_dialog, "Nhan ENTER de luu, ESC de huy.", (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (50,50,50), 1)
         cv2.imshow(self.save_map_window_name, img_save_dialog)
-
-# Tên cửa sổ hiển thị
-window_name = "image_all Image Display"
-
 # Hàm để chạy Flask trong một luồng riêng
 def run_flask():
     app.run(host=host, port=port, debug=False, use_reloader=False)
@@ -651,12 +696,18 @@ if __name__ == "__main__":
     # Chạy Flask trong một luồng riêng
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    
+    webserver.current_image0 = detect.img
+    webserver.image_initialized = True
+    # Đợi server Flask khởi động
     time.sleep(2)
 
     # Mở trang web trong trình duyệt mặc định
     webbrowser.open(f"http://{get_local_ip()}:{port}")
-
-
+    
+    
     # Vòng lặp chính
     while detect.connect_while:
         detect.main_loop()
+
+# display_save_map_window
