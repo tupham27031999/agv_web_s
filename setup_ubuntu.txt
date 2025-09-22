@@ -1,0 +1,41 @@
+lựa chọn cài ubuntu
+- interactive installation
+- default selection (minimal installation / default apps)
+- chọn cả 2 lựa chọn: install third-party software for gr.... và dowload and install support for additional media formats
+- chọn erase disk and install ubuntu
+- chọn require my password
+- chọn bangkok
+.... chọn next hết
+
+
+
+1. cài đặt unikey
+sudo apt update
+sudo apt install ibus-unikey -y
+vào setting, Region & Language thêm ngôn ngữ VN và setting/keybroad
+sử dụng phím window space để thay đổi ngôn ngữ
+2. đã có sẵn python, kiểm tra vision
+python3 --version
+Python 3.12.3
+3. cài pip 
+sudo apt install python3-pip
+4. tải vs code .deb trên web
+sudo apt install ~/Downloads/code_1.104.1-1758154125_amd64.deb
+5. mở vs code cài
+Python (Microsoft)
+Pylance (tự động gợi ý code, type checking)
+Jupyter (nếu bạn muốn chạy notebook)
+6. cài các thư viện
+sudo apt install python3-tk -y
+sudo apt install python3-numpy -y
+python3 -m pip install opencv-python pynput open3d flask requests --break-system-packages
+pip3 install --upgrade pillow --break-system-packages
+pip3 install pyperclip --break-system-packages
+pip3 install PyQt6 --break-system-packages
+pip3 install rplidar-roboticia --break-system-packages
+pip3 install gTTS --break-system-packages
+pip3 install pygame --break-system-packages
+pip3 install scikit-image --break-system-packages
+pip3 install pymodbus --break-system-packages
+sudo apt install portaudio19-dev python3-pyaudio
+pip3 install sounddevice --break-system-packages
