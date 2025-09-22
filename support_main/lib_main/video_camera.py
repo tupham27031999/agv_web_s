@@ -49,7 +49,7 @@ while(True):
         cv2.imshow("video", frame)
         output.write(frame)
         # Close and break the loop after pressing "x" key
-        if cv2.waitKey(1) &0XFF == ord('x') or cv2.getWindowProperty('video', cv2.WND_PROP_VISIBLE) < 1:
+        if cv2.waitKey(1) &0XFF == ord('x'):
             break
         if time.time() - t0 > 10 and stt == 0:
             t0 = time.time()

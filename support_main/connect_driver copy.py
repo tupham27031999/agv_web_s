@@ -461,7 +461,7 @@ class sent_data_driver:
                 print("bật giao tiếp")
 
         data_fb = self.get_rpm()
-        # print("hhhhhhhhhh", data_fb)
+        print("hhhhhhhhhh", data_fb)
         if data_fb[0] > 10000:
             self.vt_trai = - int(data_fb[0] - 65536)
         else:
@@ -499,10 +499,10 @@ class sent_data_driver:
             self.sent_data_driver = 1
             if self.thread_on == 0:
                 self.thread_on = 1
-                threading.Thread(target=self.thread_sent_data_driver).start()
+                # threading.Thread(target=self.thread_sent_data_driver).start()
                 print("bật giao tiếp")
         data_fb = self.get_rpm()
-        # print("ggggggggg", data_fb)
+        print("ggggggggg", data_fb)
         if data_fb[0] > 10000:
             self.vt_trai = - int(data_fb[0] - 65536)
         else:
@@ -511,15 +511,15 @@ class sent_data_driver:
             self.vt_phai = int(data_fb[1] - 65536)
         else:
             self.vt_phai = int(data_fb[1])
+        self.thread_sent_data_driver()
 
     def thread_sent_data_driver(self):
         while self.close == 0:
             if self.time_sent == 0:
                 self.time_sent = time.time()
             if time.time() - self.check_time > 2:
-                print("------------------ disconnect driver motor -------------------") 
+                print("------------------ disconnect driver motor -------------------")
                 self.disconnect()
-            # print(self.sent_data_driver)
             if self.sent_data_driver == 0:
                 if self.vt_phai == 0 and self.vt_trai == 0:
                     self.thread_on = 0
@@ -539,9 +539,7 @@ class sent_data_driver:
                         vt_trai = 0
                         if di_cham != 0:
                             v_tien_max = 3000
-                        # print("stop", v_tien_max,  v_re_max, point_start_LQR, point_end_LQR, \
-                        #     goc_agv, angle, distance, check_angle_distance,\
-                        #     stop, di_cham, a_v, dang_re, tien_rl)
+
                         if stop == 0:
                             if tien_rl == 0:
                                 self.time_check_connect = time.time()
@@ -618,22 +616,8 @@ class sent_data_driver:
                                         vt_phai = 0
                                         vt_trai = 0
                                 
-                            # if vt_phai > v_tien_max or vt_trai > v_tien_max:
-                            if vt_phai > v_tien_max or vt_trai > v_tien_max:
-                                print("lỗi chương trình")
-                                vt_phai = 0
-                                vt_trai = 0
-                            # self.set_rpm(vt_trai, vt_phai)
-                            # print("vt_trai, vt_phai", vt_trai, vt_phai)
-                            # self.set_rpm(0, 0)
-                            self.set_rpm(int(vt_trai), int(vt_phai))
-                        else:
-                            v0_l = self.vt_trai * 10
-                            v0_r = self.vt_phai * 10
-                            if v0_l != 0 or v0_r != 0:
-                                self.set_rpm(0, 0)
-                                print("stop_agv --")
                         
+                        self.set_rpm(vt_trai, vt_phai)
                     else:
                         v_trai_backup = self.vt_trai * 10
                         v_phai_backup = self.vt_phai * 10
@@ -665,48 +649,50 @@ class sent_data_driver:
                             if k <=0:
                                 v_trai_gui = self.vt_trai_sent
                                 v_phai_gui = self.vt_phai_sent
-                            else:
-                                if self.vt_trai_sent != 0 and self.vt_phai_sent != 0:
-                                    ty_le_van_toc = self.vt_trai_sent/self.vt_phai_sent
 
-                                    if delta_v_trai > 1000:
-                                        if v_trai_backup < self.vt_trai_sent:
-                                            if v_trai_backup + 1000 < self.vt_trai_sent: # vận tốc hiện tại + 1000 vẫn nhỏ hơn vận tốc gửi đến
-                                                v_trai_gui = v_trai_backup + 1000
-                                            else:
-                                                v_trai_gui = self.vt_trai_sent
+                            if self.vt_trai_sent != 0 and self.vt_phai_sent != 0 and k >0:
+                                ty_le_van_toc = self.vt_trai_sent/self.vt_phai_sent
+
+                                if delta_v_trai > 1000:
+                                    if v_trai_backup < self.vt_trai_sent:
+                                        if v_trai_backup + 1000 < self.vt_trai_sent: # vận tốc hiện tại + 1000 vẫn nhỏ hơn vận tốc gửi đến
+                                            v_trai_gui = v_trai_backup + 1000
                                         else:
-                                            if v_trai_backup - 1000 > self.vt_trai_sent: # vận tốc hiện tại - 1000 vẫn lớn hơn vận tốc gửi đến
-                                                v_trai_gui = v_trai_backup - 1000
-                                            else:
-                                                v_trai_gui = self.vt_trai_sent
-
+                                            v_trai_gui = self.vt_trai_sent
                                     else:
-                                        v_trai_gui = self.vt_trai_sent
-
-                                    if delta_v_phai > 1000:
-                                        if v_phai_backup < self.vt_phai_sent:
-                                            if v_phai_backup + 1000 < self.vt_phai_sent: # vận tốc hiện tại + 1000 vẫn nhỏ hơn vận tốc gửi đến
-                                                v_phai_gui = v_phai_backup + 1000
-                                            else:
-                                                v_phai_gui = self.vt_phai_sent
+                                        if v_trai_backup - 1000 > self.vt_trai_sent: # vận tốc hiện tại - 1000 vẫn lớn hơn vận tốc gửi đến
+                                            v_trai_gui = v_trai_backup - 1000
                                         else:
-                                            if v_phai_backup - 1000 > self.vt_phai_sent: # vận tốc hiện tại - 1000 vẫn lớn hơn vận tốc gửi đến
-                                                v_phai_gui = v_phai_backup - 1000
-                                            else:
-                                                v_phai_gui = self.vt_phai_sent
-                                    else:
-                                        v_phai_gui = self.vt_phai_sent
+                                            v_trai_gui = self.vt_trai_sent
 
-                                    # kiểm tra lại tỉ lệ vận tốc
-                                    if ty_le_van_toc > 1: # v_trai > v_phai
-                                        v_phai_gui = int(v_trai_gui / ty_le_van_toc)
+                                else:
+                                    v_trai_gui = self.vt_trai_sent
+
+                                if delta_v_phai > 1000:
+                                    if v_phai_backup < self.vt_phai_sent:
+                                        if v_phai_backup + 1000 < self.vt_phai_sent: # vận tốc hiện tại + 1000 vẫn nhỏ hơn vận tốc gửi đến
+                                            v_phai_gui = v_phai_backup + 1000
+                                        else:
+                                            v_phai_gui = self.vt_phai_sent
                                     else:
+                                        if v_phai_backup - 1000 > self.vt_phai_sent: # vận tốc hiện tại - 1000 vẫn lớn hơn vận tốc gửi đến
+                                            v_phai_gui = v_phai_backup - 1000
+                                        else:
+                                            v_phai_gui = self.vt_phai_sent
+                                else:
+                                    v_phai_gui = self.vt_phai_sent
+
+                                # kiểm tra lại tỉ lệ vận tốc
+                                if v_trai_gui != 0:
+                                    ty_le_van_toc_gui = v_phai_gui/v_trai_gui
+                                    if ty_le_van_toc > ty_le_van_toc_gui:
                                         v_trai_gui = int(v_phai_gui * ty_le_van_toc)
+                                    else:
+                                        v_phai_gui = int(v_trai_gui / ty_le_van_toc)
 
 
-                        self.set_rpm(int(v_trai_gui), int(v_phai_gui))
-                        # print(v_trai_gui, v_phai_gui, v_phai_backup, v_trai_backup, self.vt_trai_sent, self.vt_phai_sent, "-------------------------------")
+                        self.set_rpm(v_trai_gui, v_phai_gui)
+                        print(v_trai_gui, v_phai_gui, v_phai_backup, v_trai_backup, self.vt_trai_sent, self.vt_phai_sent, "-------------------------------")
 
 
                         # self.set_rpm(self.vt_trai_sent, self.vt_phai_sent)
@@ -717,7 +703,7 @@ class sent_data_driver:
                         # self.set_rpm(self.vt_trai_sent, self.vt_phai_sent)
                         # print("jjjj")
                         # print(self.vt_trai_sent, self.vt_phai_sent)
-            time.sleep(0.2)
+            # time.sleep(0.01)
     
     def check_connect(self):
         self.check_time = time.time()
