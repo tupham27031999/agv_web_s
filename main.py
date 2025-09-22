@@ -98,6 +98,8 @@ for i in range(0,len(data_admin)):
         if data_admin[i][0] == "rotation0":
             if data_admin[i][1] != "none":
                 rotation0 = float(data_admin[i][1])
+        if data_admin[i][0] == "music_on": # sai so cap nhat map
+            music_on = int(float(data_admin[i][1]))
 
 print("scaling_factor", scaling_factor)
 # host = "172.26.76.151"
@@ -172,7 +174,7 @@ class support_main:
         self.input_rect = (50, 70, 300, 30) # x, y, w, h for text input box 
         self.save_button_rect = (150, 130, 100, 40) 
 
-        self.kiem_tra_connect = {"lidar": "on", "driver_motor": "on", "esp32": "off", "process_lidar": "on"}
+        self.kiem_tra_connect = {"lidar": "off", "driver_motor": "off", "esp32": "off", "process_lidar": "on"}
 
         self.img = np.zeros((self.window_size,self.window_size,3), np.uint8)
         self.map_all = np.zeros((self.window_size,self.window_size,3), np.uint8)
@@ -225,13 +227,14 @@ class support_main:
         # self.detect_data_driver = driver_control_input.detect_data_sent_driver(load_data_esp, driver_motor_check = 0)
 
         self.voxel_size = 120
-        self.loa_blutooth = 0
+        self.loa_blutooth = music_on
         self.time_loa = 0
-        try:
-            threading.Thread(target=ket_noi_esp_loa.python_esp32).start()
-        except OSError as e:
-            print("error 44")
-            pass
+        if self.loa_blutooth == 1:
+            try:
+                threading.Thread(target=ket_noi_esp_loa.python_esp32).start()
+            except OSError as e:
+                print("error 44")
+                pass
 
     def main_loop(self):
 
@@ -281,13 +284,13 @@ class support_main:
             #     scan_alpha_2 = np.load(path_folder_scan_lidar2 + "/scan_"+ str(self.stt_scan) +".npy")
 
             if self.stt_scan < len(list_data0):
-                scan_alpha = np.load(path_folder_scan_data_1 + "/scan_"+ str(self.stt_scan) +".npy")
+                scan_alpha = np.load(path_folder_scan_data_0 + "/scan_"+ str(self.stt_scan) +".npy")
                 self.stt_scan = self.stt_scan + 1
                 # self.stt_scan = 500
             else:
                 self.connect_while = False
                 self.stt_scan = self.stt_scan - 1
-                scan_alpha = np.load(path_folder_scan_data_1 + "/scan_"+ str(self.stt_scan) +".npy")
+                scan_alpha = np.load(path_folder_scan_data_0 + "/scan_"+ str(self.stt_scan) +".npy")
 
         
             scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar( scan1_data_example=scan_alpha, 
