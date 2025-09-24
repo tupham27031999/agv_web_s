@@ -20,6 +20,7 @@ from support_main import ket_noi_esp_loa
 import subprocess
 
 
+
 path_phan_mem = path.path_phan_mem
 path_admin = path_phan_mem + "/setting/admin_window.csv"
 
@@ -27,8 +28,6 @@ path_admin = path_phan_mem + "/setting/admin_window.csv"
 SAVED_DATA_DIR = path_phan_mem + "/data_input_output"
 PATH_MAPS_DIR = SAVED_DATA_DIR + "/maps"
 name_map = "map"
-# # Tạo cửa sổ trước
-# cv2.namedWindow(name_map, cv2.WINDOW_NORMAL)
 
 if os.name == "nt":
     print("Hệ điều hành là Windows")
@@ -38,8 +37,6 @@ elif os.name == "posix":
     print("Hệ điều hành là Ubuntu (Linux)")
     # Đọc file cài đặt cho Ubuntu
     path_admin = path_phan_mem + "/setting/admin_ubuntu.csv"
-
-
 
 def shutdown():
     try:
@@ -51,6 +48,7 @@ def shutdown():
         print("Đã gửi lệnh tắt máy.")
     except Exception as e:
         print("Lỗi khi tắt máy:", e)
+
 
 def get_local_ip():
     """
