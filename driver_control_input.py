@@ -157,6 +157,9 @@ class detect_data_sent_driver:
 
         self.ten_diem_bat_dau = ""
 
+        self.danh_sach_diem_moi = ["P1", "P2", "P3"]
+        self.thay_doi_diem = 0
+
         
     def reset_data(self):
         pass
@@ -182,7 +185,7 @@ class detect_data_sent_driver:
             
             
 
-    def convert_tin_hieu(self, tin_hieu, danh_sach_diem, danh_sach_duong):
+    def convert_tin_hieu(self, tin_hieu_agv, name_agv, danh_sach_diem, danh_sach_duong):
         """
         Kiểm tra và tách chuỗi tín hiệu AGV.
 
@@ -207,7 +210,8 @@ class detect_data_sent_driver:
         #     "tín hiệu input": [],
         #     "tín hiệu tạm thời": []
         # }
-
+        print("tin_hieu", tin_hieu_agv)
+        tin_hieu = tin_hieu_agv[name_agv]
         data_all = {
             "tín hiệu hợp lệ": "True", # Mặc định là True, sẽ đổi thành False nếu cần
             "tên điểm bắt đầu": "",
@@ -221,7 +225,7 @@ class detect_data_sent_driver:
             "tín hiệu tạm thời": []
         }
         # {'name_agv': 'agv1', 'dich_den': 'P2', 'trang_thai': 'run'}
-        data_all["tín hiệu hợp lệ"] = "True"
+        # data_all["tín hiệu hợp lệ"] = ""
         diem_dich = tin_hieu["dich_den"]
         diem_dau, khoang_cach = self.tim_diem_gan_nhat([self.toa_do_x_agv, self.toa_do_y_agv], danh_sach_diem)
         # print("khoang_cach", diem_dau, khoang_cach)
@@ -271,7 +275,7 @@ class detect_data_sent_driver:
             duong_truc_tiep = str(data_all["tên điểm đích"]) + "_" + str(data_all["tên điểm bắt đầu"])
             duong_nguoc_lai = str(data_all["tên điểm bắt đầu"]) + "_" + str(data_all["tên điểm đích"])
             if (duong_truc_tiep not in danh_sach_duong) and (duong_nguoc_lai not in danh_sach_duong):
-                # print("llllllllllll", duong_truc_tiep, duong_nguoc_lai)
+                print("llllllllllll", duong_truc_tiep, duong_nguoc_lai, danh_sach_duong)
                 data_all["tín hiệu hợp lệ"] = "Không có đường đi trực tiếp giữa điểm bắt đầu và điểm đích."
                 # print("Không có đường đi trực tiếp giữa điểm bắt đầu và điểm đích.")
         else: # Nếu điểm không hợp lệ, đường đi chắc chắn không hợp lệ
@@ -330,7 +334,18 @@ class detect_data_sent_driver:
         # Nếu tất cả các điều kiện trong check_data đều được kiểm tra và khớp
         return True
     def load_data_web(self):
+        # {
+        #             "agv1": {"vi_tri_hien_tai": "P1", "dich_den": "P1", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv2": {"vi_tri_hien_tai": "P2", "dich_den": "P2", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv3": {"vi_tri_hien_tai": "P3", "dich_den": "P3", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv4": {"vi_tri_hien_tai": "P4", "dich_den": "P4", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv5": {"vi_tri_hien_tai": "P5", "dich_den": "P5", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv6": {"vi_tri_hien_tai": "P6", "dich_den": "P6", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+        #             "agv7": {"vi_tri_hien_tai": "P7", "dich_den": "P7", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []}
+        #         } # test
+        # print(webserver.tin_hieu_nhan)
         tin_hieu_nhan = webserver.tin_hieu_nhan # {'name_agv': 'agv1', 'dich_den': "P2", 'trang_thai': 'run'}
+        name_agv = webserver.name_agv
         dict_cai_dat = webserver.dict_cai_dat
         self.danh_sach_diem = webserver.danh_sach_diem
         self.danh_sach_duong = webserver.danh_sach_duong
@@ -340,7 +355,7 @@ class detect_data_sent_driver:
         self.v_tien_max = dict_cai_dat["van_toc_tien_max"]
         self.v_re_max = dict_cai_dat["van_toc_re_max"]
 
-        return tin_hieu_nhan
+        return tin_hieu_nhan, name_agv
     
     def xu_ly_tin_hieu(self):
 
@@ -357,9 +372,9 @@ class detect_data_sent_driver:
         #     "tín hiệu tạm thời": []
         # }
 
-        tin_hieu_nhan = self.load_data_web()
+        tin_hieu_nhan, name_agv = self.load_data_web()
         if tin_hieu_nhan != {} and self.run_stop == 1:
-            data_tin_hieu_nhan =  self.convert_tin_hieu(tin_hieu_nhan, self.danh_sach_diem, self.danh_sach_duong)
+            data_tin_hieu_nhan =  self.convert_tin_hieu(tin_hieu_nhan, name_agv, self.danh_sach_diem, self.danh_sach_duong)
             # data_tin_hieu_nhan = {'tín hiệu hợp lệ': 'True', 
             #                     'tên điểm bắt đầu': 'P1', 
             #                     'tọa độ điểm bắt đầu': [972, 892], 
@@ -382,7 +397,7 @@ class detect_data_sent_driver:
             tin_hieu_tam_thoi = data_tin_hieu_nhan["tín hiệu tạm thời"]
             # print("data_tin_hieu_nhan", data_tin_hieu_nhan)
             # print("--------------------------------------------------------------------------")
-            # print("tin_hieu_hop_leor self.stop_rmse == 1 or self.stop_vat_can == 1", tin_hieu_hop_le, self.stop_rmse, self.stop_vat_can == 1)
+            print("tin_hieu_hop_leor self.stop_rmse == 1 or self.stop_vat_can == 1", tin_hieu_hop_le, self.stop_rmse, self.stop_vat_can == 1)
             stop = 0
             if tin_hieu_hop_le != "True" or self.stop_rmse == 1 or self.stop_vat_can == 1:
                 stop = 1
@@ -391,6 +406,34 @@ class detect_data_sent_driver:
 
             if self.convert_data_run_agv["run_diem_2"] == "OK" and self.convert_data_run_agv["run_huong"] == "OK": ##################### test tạm thời
                 stop = 1
+                if ten_diem_dau == "P1" and ten_diem_dich == "P2":
+                    webserver.tin_hieu_nhan[name_agv] = {"vi_tri_hien_tai": "P2", 
+                                                            "dich_den": "P3", 
+                                                            "trang_thai": "run", 
+                                                            "message": "None", 
+                                                            "danh_sach_duong_di": []}
+                if ten_diem_dau == "P2" and ten_diem_dich == "P3":
+                    webserver.tin_hieu_nhan[name_agv] = {"vi_tri_hien_tai": "P3", 
+                                                            "dich_den": "P2", 
+                                                            "trang_thai": "run", 
+                                                            "message": "None", 
+                                                            "danh_sach_duong_di": []}
+
+                if ten_diem_dau == "P3" and ten_diem_dich == "P2":
+                    webserver.tin_hieu_nhan[name_agv] = {"vi_tri_hien_tai": "P2", 
+                                                            "dich_den": "P1", 
+                                                            "trang_thai": "run", 
+                                                            "message": "None", 
+                                                            "danh_sach_duong_di": []}
+                if ten_diem_dau == "P2" and ten_diem_dich == "P1":
+                    webserver.tin_hieu_nhan[name_agv] = {"vi_tri_hien_tai": "P1", 
+                                                            "dich_den": "P2", 
+                                                            "trang_thai": "run", 
+                                                            "message": "None", 
+                                                            "danh_sach_duong_di": []}
+                self.convert_data_run_agv = self.convert_data_run_agv0.copy()
+                self.ten_diem_bat_dau = ""
+                self.distance_old = 1000
 
 
             self.stop = stop
@@ -478,19 +521,19 @@ class detect_data_sent_driver:
                         self.khoang_canh_an_toan_tien = [khoang_canh_an_toan_tien[0], khoang_canh_an_toan_tien[1] - number_kc]
 
                         # agv rẽ trái hoặc phải
-                        if abs(angle_deg) > 30:
+                        if abs(angle_deg) > 20:
                             self.dang_re = 1
                         if abs(angle_deg) < 12 and self.dang_re == 1:
                             self.dang_re = 0
                         if on_music == 1:
                             # music
-                            if angle_deg < -30:
+                            if angle_deg < -20:
                                 self.name_music = "re_phai"
                             else:
                                 if self.name_music == "re_phai":
                                     self.name_music = "none"
 
-                            if angle_deg > 30:
+                            if angle_deg > 20:
                                 self.name_music = "re_trai"
                             else:
                                 if self.name_music == "re_trai":
@@ -535,7 +578,10 @@ class detect_data_sent_driver:
                                 else:
                                     if self.name_music == "re_trai":
                                         self.name_music = "none"
-                    
+                            
+
+
+                                    
 
                     self.point_end_LQR = point_end_LQR
                     self.check_angle_distance = check_angle_distance
