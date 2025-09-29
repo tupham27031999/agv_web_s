@@ -3,6 +3,7 @@ import cv2
 import os
 # import signal
 # import sys
+
 import numpy as np
 import time
 import threading
@@ -108,7 +109,37 @@ dict_data_grid = {}
 paint_dict_data_grid = True # New flag to control drawing grids
 
 # --- Signal Communication Variables ---
-tin_hieu_nhan = {'name_agv': 'agv1', 'dich_den': "P2", 'trang_thai': 'run'}
+# {'agv1': {'dich_den': 'P1', 'trang_thai': 'run'}, 
+#  'agv2': {'dich_den': 'P2', 'trang_thai': 'run'}, 
+#  'agv3': {'dich_den': 'P3', 'trang_thai': 'run'}, 
+#  'agv4': {'dich_den': 'P4', 'trang_thai': 'run'}, 
+#  'agv5': {'dich_den': 'P5', 'trang_thai': 'run'}, 
+#  'agv6': {'dich_den': 'P6', 'trang_thai': 'run'}, 
+#  'agv7': {'dich_den': 'P7', 'trang_thai': 'run'}}
+name_agv = "agv1"
+tin_hieu_nhan = {
+                    "agv1": {"vi_tri_hien_tai": "P1", "dich_den": "P2", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv2": {"vi_tri_hien_tai": "P2", "dich_den": "P2", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv3": {"vi_tri_hien_tai": "P3", "dich_den": "P3", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv4": {"vi_tri_hien_tai": "P4", "dich_den": "P4", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv5": {"vi_tri_hien_tai": "P5", "dich_den": "P5", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv6": {"vi_tri_hien_tai": "P6", "dich_den": "P6", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    "agv7": {"vi_tri_hien_tai": "P7", "dich_den": "P7", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []}
+                } # test
+
+danh_sach_duong_di = []
+vi_tri_hien_tai = "P1"
+dich_den = "P1"
+trang_thai = "run"
+message_agv = "none"
+
+tin_hieu_gui = {name_agv: {"vi_tri_hien_tai": danh_sach_duong_di, 
+                           'dich_den': dich_den, 
+                           'trang_thai': trang_thai, 
+                           "message": message_agv,
+                           "danh_sach_duong_di": danh_sach_duong_di}}
+
+
 thoi_gian_nhan_str = "N/A"
 
 run_and_stop = 0 # "run" or "stop"
@@ -127,7 +158,7 @@ def log_communication(log_type, timestamp_str, signal_value):
     try:
         now = time.localtime()
         date_hour_str = time.strftime("%Y-%m-%d_%H", now)
-        filename = f"log_{log_type}_{date_hour_str}.txt"
+        filename = f"log_{date_hour_str}.txt"
         filepath = os.path.join(PATH_LOG_GIAO_TIEP_DIR, filename)
 
         # Chuyển đổi signal_value thành chuỗi JSON nếu nó là dict hoặc list
@@ -137,7 +168,7 @@ def log_communication(log_type, timestamp_str, signal_value):
             log_content = str(signal_value)
 
         with open(filepath, "a", encoding="utf-8") as f:
-            f.write(f"{timestamp_str}\t{log_content}\n")
+            f.write(f"{timestamp_str}\t{log_type}\t{log_content}\n")
     except Exception as e:
         print(f"Error writing to log file: {e}")
 
@@ -2499,16 +2530,38 @@ def get_current_state_route():
 # --- Signal Communication Endpoints ---
 @app.route('/PC_sent_AGV', methods=['POST'])
 def pc_sent_agv_endpoint():
-    global tin_hieu_nhan, thoi_gian_nhan_str
+    global tin_hieu_nhan, thoi_gian_nhan_str, tin_hieu_gui
     data = request.get_json()
-    # print(data)
-    # {'signal': {'name_agv': 'agv1', 'dich_den': [4, 3], 'trang_thai': 'run'}}
-    if data and 'signal' in data:
-        tin_hieu_nhan = data['signal']
+    if data:
+        tin_hieu_nhan = data
         thoi_gian_nhan_str = time.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"Signal received: {tin_hieu_nhan} at {thoi_gian_nhan_str}")
+        
+        # tin_hieu_nhan = {
+                    #     "agv1": {"vi_tri_hien_tai": "P1", "dich_den": "P1", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv2": {"vi_tri_hien_tai": "P2", "dich_den": "P2", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv3": {"vi_tri_hien_tai": "P3", "dich_den": "P3", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv4": {"vi_tri_hien_tai": "P4", "dich_den": "P4", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv5": {"vi_tri_hien_tai": "P5", "dich_den": "P5", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv6": {"vi_tri_hien_tai": "P6", "dich_den": "P6", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []},
+                    #     "agv7": {"vi_tri_hien_tai": "P7", "dich_den": "P7", "trang_thai": "run", "message": "None", "danh_sach_duong_di": []}
+                    # } # test
+        # tin_hieu_gui = {'agv1': {"vi_tri_hien_tai": "P1", 'dich_den': "P1", 'trang_thai': 'run', "message": "None","danh_danh_duong_di":[]}}
+
+        tin_hieu_gui[name_agv]["dich_den"] = tin_hieu_nhan[name_agv]["dich_den"]
+        tin_hieu_gui[name_agv]["trang_thai"] = tin_hieu_nhan[name_agv]["trang_thai"]
+        tin_hieu_gui[name_agv]["danh_danh_duong_di"] = danh_sach_duong_di
+        tin_hieu_gui = {name_agv: {"vi_tri_hien_tai": danh_sach_duong_di, 
+                           'dich_den': dich_den, 
+                           'trang_thai': trang_thai, 
+                           "message": message_agv,
+                           "danh_sach_duong_di": danh_sach_duong_di}}
+
+        print(f"tín hiệu nhận: {tin_hieu_nhan} at {thoi_gian_nhan_str}")
+        print(f"tín hiệu gửi: {tin_hieu_gui} at {thoi_gian_nhan_str}")
+
         log_communication("nhan", thoi_gian_nhan_str, tin_hieu_nhan)
-        return jsonify({"status": "success", "message": tin_hieu_nhan}), 200
+        log_communication("gui", thoi_gian_nhan_str, tin_hieu_gui)
+        return jsonify({"status": "success", "data": tin_hieu_gui}), 200
     return jsonify({"status": "error", "message": "Invalid signal data. Expecting {'signal': 'your_string'}."}), 400
 
 
@@ -2660,7 +2713,7 @@ def get_agv_state_route():
 
     return jsonify(response),200
 
-# --- Xử lý Danh sách Grid (GRID LISTS) ---
+
 @app.route('/api/toggle_run_stop', methods=['POST'])
 def toggle_run_stop_route():
     global run_and_stop
