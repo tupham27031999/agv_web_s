@@ -5,7 +5,7 @@ import threading
 import path
 from pynput import keyboard
 import signal # Import the signal module
-from support_main import connect_lidar_sick, connect_lidar, music
+from support_main import connect_lidar, connect_lidar_sick_1, connect_lidar_sick_2, connect_2_lidar_sick, music
 import process_lidar
 import webserver
 from webserver import app
@@ -17,6 +17,7 @@ import open3d as o3d
 import socket
 import check_loa_bluetooth
 from support_main import ket_noi_esp_loa
+import subprocess
 
 
 
@@ -36,6 +37,17 @@ elif os.name == "posix":
     print("Hệ điều hành là Ubuntu (Linux)")
     # Đọc file cài đặt cho Ubuntu
     path_admin = path_phan_mem + "/setting/admin_ubuntu.csv"
+
+def shutdown():
+    try:
+        # Cách 1: dùng os.system
+        # os.system("sudo shutdown -h now")
+
+        # Cách 2: dùng subprocess (khuyến nghị hơn)
+        subprocess.run(["sudo", "shutdown", "-h", "now"])
+        print("Đã gửi lệnh tắt máy.")
+    except Exception as e:
+        print("Lỗi khi tắt máy:", e)
 
 
 def get_local_ip():
@@ -174,7 +186,7 @@ class support_main:
         self.input_rect = (50, 70, 300, 30) # x, y, w, h for text input box 
         self.save_button_rect = (150, 130, 100, 40) 
 
-        self.kiem_tra_connect = {"lidar": "off", "driver_motor": "off", "esp32": "off", "process_lidar": "on"}
+        self.kiem_tra_connect = {"lidar": "on", "driver_motor": "on", "esp32": "off", "process_lidar": "on"}
 
         self.img = np.zeros((self.window_size,self.window_size,3), np.uint8)
         self.map_all = np.zeros((self.window_size,self.window_size,3), np.uint8)
@@ -207,8 +219,14 @@ class support_main:
                 #                                                       x_goc0=x_goc0,y_goc0=y_goc0,rotation0=rotation0)
                 self.process_lidar = process_lidar.process_data_lidar(self.window_size,self.window_size_all,self.scaling_factor,self.rmse1,self.rmse2)
             if self.loai_lidar != "usb":
-                self.lidar = connect_lidar_sick.LidarP()
-                threading.Thread(target=self.lidar.process_data).start()
+                # self.lidar_1 = connect_lidar_sick_1.LidarP()
+                # threading.Thread(target=self.lidar_1.process_data).start()
+                
+                # self.lidar_2 = connect_lidar_sick_2.LidarP()
+                # threading.Thread(target=self.lidar_2.process_data).start()
+
+                self.lidar_sick = connect_2_lidar_sick.LidarP()
+                self.lidar_sick.start_processing()
             else:
                 self.lidar = connect_lidar.main_lidar()
                 self.lidar.connect()
@@ -229,13 +247,32 @@ class support_main:
         self.voxel_size = 120
         self.loa_blutooth = music_on
         self.time_loa = 0
-        if self.loa_blutooth == 1:
+        self.on_nguon_24v = 0
+        self.off_nguon_24v = 0
+        self.gui_off_24v_thanh_cong = 0
+        self.phanh_agv = 0
+        self.sent_phanh_agv = 0
+
+        
+        if self.loa_blutooth == 1 or self.on_nguon_24v == 1:
             try:
                 threading.Thread(target=ket_noi_esp_loa.python_esp32).start()
             except OSError as e:
                 print("error 44")
                 pass
-
+    def tat_nguon(self):
+        if self.kiem_tra_connect["lidar"] == "on":
+            if self.loai_lidar != "usb":
+                self.lidar_sick.disconnect()
+                # self.lidar_1.connect = False
+                # self.lidar_2.connect = False
+            else:
+                self.lidar.disconnect()
+        ket_noi_esp_loa.close_serial()
+        self.connect_while = False
+        music.disconnect_sound()
+        if os.name == "posix":
+            shutdown() # Killed
     def main_loop(self):
 
         list_data0 = os.listdir(path_folder_scan_data_0)
@@ -247,21 +284,29 @@ class support_main:
         if webserver.open_loa == 1:
             webserver.open_loa = 0  # Reset lại cờ ngay sau khi xử lý
             # Gửi tín hiệu bật loa (giữ nguyên logic cũ của bạn)
-            ket_noi_esp_loa.py_sent_esp("data#" + str(int("100001000", 2)))
+            # ket_noi_esp_loa.py_sent_esp("data#" + str(int("100001000", 2)) + "#" + str(self.on_off_24v) + "#" + str(self.phanh_agv) + "#")
+            ket_noi_esp_loa.py_sent_esp("data#" + str(int("100010000", 2)))
             self.time_loa = time.time()
         if self.time_loa != 0:
             if time.time() - self.time_loa > 5:
+                # ket_noi_esp_loa.py_sent_esp("data#" + str(int("100000000", 2)) + "#" + str(self.on_off_24v) + "#" + str(self.phanh_agv) + "#")
                 ket_noi_esp_loa.py_sent_esp("data#" + str(int("100000000", 2)))
                 self.time_loa = 0
+        # gửi tín hiệu ngắt nguồn 
+        if self.off_nguon_24v == 1:
+            ket_noi_esp_loa.py_sent_esp("off_24v#0")
+            if ket_noi_esp_loa.gui_off_24v_thanh_cong == 1:
+                self.tat_nguon()
+                # self.off_nguon_24v = 0
 
 
         if self.kiem_tra_connect["lidar"] == "on":
-            scan_alpha_1, _ = self.load_data_lidar()
+            scan_alpha_1, scan_alpha_2, _, _ = self.load_data_lidar()
             # print(scan_alpha_1)
             # print("--------------------------")
 
             scan_xy, scan1, scan2 = convert_2_lidar.convert_scan_lidar(scan1_data_example=scan_alpha_1, 
-                                                                        scan2_data_example=scan_alpha_1, 
+                                                                        scan2_data_example=scan_alpha_2, 
                                                                         scaling_factor = 1,
                                                                         lidar1_orient_deg = 45,
                                                                         lidar2_orient_deg = 45,
@@ -399,14 +444,22 @@ class support_main:
             self.data_sent_process_lidar["add_map"] = 1
         # thoat chương trình
         elif key == ord('q') or cv2.getWindowProperty('map', cv2.WND_PROP_VISIBLE) < 1:
+            print("close_all")
             if self.kiem_tra_connect["lidar"] == "on":
                 if self.loai_lidar != "usb":
-                    self.lidar.connect = False
+                    self.lidar_sick.disconnect()
+                    # self.lidar_1.connect = False
+                    # self.lidar_2.connect = False
+                    print("close lidar sick")
                 else:
                     self.lidar.disconnect()
+                    print("close lidar usb")
             ket_noi_esp_loa.close_serial()
             self.connect_while = False
             music.disconnect_sound()
+            print("close_all")
+        elif key == ord('x'):
+            self.off_nguon_24v = 1
         else:
             # lưu map
             if self.is_saving_map_mode:
@@ -479,15 +532,28 @@ class support_main:
     def load_data_lidar(self):
         if self.kiem_tra_connect["lidar"] == "on":
             if self.loai_lidar != "usb":
-                scan, check = self.lidar.get_data()
+                scan_1, scan_2, check_1, check_2 = self.lidar_sick.get_data()
+
+                # scan_1, check_1 = self.lidar_1.get_data()
+                # scan_2, check_2 = self.lidar_2.get_data()
+
+                scan_2 = scan_1
+                check_2 = check_1
             else:
                 scan, check = self.lidar.return_data()
                 self.lidar.time_close = time.time()
+                scan_1 = scan
+                scan_2 = scan
+                check_1 = check
+                check_2 = check
         else:
-            scan = np.array([[0, 0, 0]])
-            check = False
-        scan = np.array(scan)
-        return scan, check
+            scan_1 = np.array([[0, 0, 0]])
+            scan_2 = np.array([[0, 0, 0]])
+            check_1 = False
+            check_2 = False
+        scan_1 = np.array(scan_1)
+        scan_2 = np.array(scan_2)
+        return scan_1, scan_2, check_1, check_2
     def set_data_process(self):
         self.process_lidar.add_all_point = self.data_sent_process_lidar["add_all_point"]
         self.process_lidar.add_map = self.data_sent_process_lidar["add_map"]

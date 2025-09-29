@@ -19,12 +19,14 @@
 2	khoang_cach_astar_scan		60
 2	grid_size			5
 2	agv_size			5
-2	host_lidar			192.168.1.10
-2	port_lidar			2368
+2	host_lidar_1			192.168.1.100
+2	port_lidar_1			2368
+2	host_lidar_2			192.168.1.100
+2	port_lidar_2			2369
 2	########			########
 2	angle_line			100			giam sai so van toc
-2	tien_max			4000
-2	re_max				500
+2	tien_max			5000
+2	re_max				600
 2	distance_max			80
 2	distan_scan_all			1		10000
 2	dis_min				0
@@ -35,12 +37,13 @@
 2	port				5000	
 2	khoang_cach_dich_min		3		# khoảng cách mà agv cần di chuyển chính xác (tại các điểm có hướng) nhỏ nhất là 2
 2	khoang_cach_dich_max		7		# khoảng cách mà agv cần di chuyển chính xác (tại các điểm không hướng) nhỏ nhất là 2
-2	x_goc0				2500
-2	y_goc0				2500
-2	rotation0			0
+2	x_goc0				913
+2	y_goc0				1274
+2	rotation0			-20
 2	kc_them_map			300		190
 2	loai_lidar			ethernet
 2	loa				JBL Go 3
 2	com_esp_loa			COM3		115200
+2	music_on			1
 2
 2	
